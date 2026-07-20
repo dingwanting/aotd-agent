@@ -1,0 +1,53 @@
+<view class="page-shell">
+  <view class="progress-block">
+    <view class="progress-row">
+      <view class="step">{{step}}</view>
+      <view class="progress-copy muted">{{progressLabel}}</view>
+    </view>
+    <view class="progress-track">
+      <view class="progress-fill" style="width: {{progress}}%;"></view>
+    </view>
+  </view>
+
+  <view class="hero card">
+    <text class="eyebrow">Tonight Mood</text>
+    <view class="title">{{title}}</view>
+    <view class="hint muted">{{hint}}</view>
+  </view>
+
+  <view class="options">
+    <view
+      wx:for="{{options}}"
+      wx:key="value"
+      class="option card {{selectedValue === item.value ? 'option--active' : ''}}"
+      hover-class="option--hover"
+      data-value="{{item.value}}"
+      bindtap="handleSelect"
+    >
+      <view class="option-inner">
+        <view class="option-copy">
+          <view class="option-title">{{item.label}}</view>
+          <view class="option-desc muted">{{item.description}}</view>
+        </view>
+        <view class="option-mark">{{item.mark}}</view>
+      </view>
+    </view>
+  </view>
+
+  <view class="footnote card">
+    <text class="footnote-label">轻提示</text>
+    <text class="footnote-copy muted">{{footnote}}</text>
+  </view>
+
+  <view class="actions">
+    <button wx:if="{{showBack}}" class="action-secondary" bindtap="handleBack">返回上一题</button>
+    <button
+      wx:if="{{showGenerateButton}}"
+      class="action-primary {{canGenerate ? '' : 'action-primary--disabled'}}"
+      bindtap="handleGenerate"
+      disabled="{{!canGenerate}}"
+    >
+      生成今晚歌单
+    </button>
+  </view>
+</view>

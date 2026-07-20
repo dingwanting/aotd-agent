@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AOTD · 分享卡片</title>
+  <link rel="stylesheet" href="/colors_and_type.css" />
+  <link rel="stylesheet" href="/styles/aotd-shell.css" />
+</head>
+<body>
+  <div class="stage">
+    <aside class="aside-panel">
+      <p class="aside-panel__eyebrow">Share Mood</p>
+      <div class="aside-panel__card">
+        <strong>用于截图传播的产品卡</strong>
+        <p>保留产品感和高级感，用一张有情绪密度的卡片，把今晚的歌单和一句话一起分享出去。</p>
+      </div>
+    </aside>
+
+    <section class="device" aria-label="AOTD 分享卡片页">
+      <div class="screen">
+        <div class="statusbar">
+          <span>19:24</span>
+          <div class="status-icons" aria-hidden="true"><span></span><span></span><span></span></div>
+        </div>
+
+        <div class="topbar">
+          <a class="ghost" href="/pages/playlist-result.html" data-role="back" aria-label="返回结果页">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M15 18L9 12L15 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </a>
+          <span class="mark">Share Card</span>
+        </div>
+
+        <main>
+          <div data-role="share-content" hidden>
+            <section class="poster">
+              <div class="poster-head">
+                <div class="logo">
+                  <strong>AOTD</strong>
+                  <span>After Office Tone Drift</span>
+                </div>
+                <div class="mini-orbit" aria-hidden="true">
+                  <svg viewBox="0 0 64 64" fill="none">
+                    <circle cx="32" cy="32" r="21" stroke="currentColor" stroke-width="1.5" opacity="0.45"></circle>
+                    <circle cx="32" cy="32" r="10" stroke="currentColor" stroke-width="1.5" opacity="0.75"></circle>
+                    <path d="M15 32H49" stroke="currentColor" stroke-width="1.5" opacity="0.55"></path>
+                  </svg>
+                </div>
+              </div>
+
+              <p class="eyebrow">今日 AOTD</p>
+              <h1 data-role="share-title">今晚歌单</h1>
+              <p class="subline" data-role="share-subtitle"></p>
+
+              <div class="tags" aria-label="关键词" data-role="share-tags"></div>
+
+              <p class="quote" data-role="share-caption"></p>
+
+              <div class="poster-bottom">
+                <div class="scan-copy">
+                  <strong data-role="share-scan-title">查看今晚歌单</strong>
+                  <span data-role="share-scan-copy">返回结果页查看完整曲目与推荐逻辑。</span>
+                </div>
+                <div class="qr" aria-hidden="true">
+                  <div class="qr-grid">
+                    <span></span><span></span><span></span><span></span>
+                    <span></span><span></span><span></span><span></span>
+                    <span></span><span></span><span></span><span></span>
+                    <span></span><span></span><span></span><span></span>
+                  </div>
+                </div>
+              </div>
+            </section>
+          </div>
+        </main>
+
+        <footer>
+          <button class="cta-primary" type="button" data-role="save-share">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M7 12H17" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path><path d="M12 7L17 12L12 17" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+            <span>保存并分享</span>
+          </button>
+          <p class="footer-copy">分享卡保留今晚歌单标题、关键词与识别区，适合直接截图发送给朋友或发到社交平台。</p>
+        </footer>
+      </div>
+    </section>
+
+    <aside class="aside-panel">
+      <p class="aside-panel__eyebrow">Poster Feel</p>
+      <div class="aside-panel__card">
+        <strong>不是纯运营海报</strong>
+        <p>主视觉依然遵循产品玻璃质感与夜间色系，只把信息收束成更适合传播的一张卡。</p>
+      </div>
+    </aside>
+  </div>
+
+  <script type="module">
+    import { initShareCardPage } from "/scripts/aotd-app.js";
+    initShareCardPage();
+  </script>
+</body>
+</html>

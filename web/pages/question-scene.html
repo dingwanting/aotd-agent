@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AOTD · 第三题</title>
+  <link rel="stylesheet" href="/colors_and_type.css" />
+  <link rel="stylesheet" href="/styles/aotd-shell.css" />
+</head>
+<body>
+  <div class="stage">
+    <aside class="aside-panel">
+      <p class="aside-panel__eyebrow">AOTD</p>
+      <div class="aside-panel__card">
+        <strong>第三步，进入场景</strong>
+        <p>让抽象情绪落进一幕可感知的夜晚场景，结果页会因此更像今晚专属专辑封面。</p>
+      </div>
+    </aside>
+
+    <section class="device" aria-label="AOTD 第三题页面">
+      <div class="screen">
+        <div class="statusbar">
+          <span>19:24</span>
+          <div class="status-icons" aria-hidden="true"><span></span><span></span><span></span></div>
+        </div>
+
+        <div class="topbar">
+          <a class="ghost" href="/pages/question-need.html" data-role="back" aria-label="返回上一题">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M15 18L9 12L15 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </a>
+          <span class="progress-meta" data-role="step">03/03</span>
+        </div>
+
+        <main>
+          <section class="card-block hero-card">
+            <p class="eyebrow">第三题</p>
+            <h1 data-role="question-title">如果今晚是一部电影，你希望是什么场景？</h1>
+            <p class="hint" data-role="question-hint">选一个最想停留的画面，AOTD 会按这个镜头组织封面氛围、曲目顺序与情绪推进。</p>
+          </section>
+
+          <div class="progress-row" aria-label="问题进度">
+            <div class="progress-track"><div class="progress-fill" data-role="progress-fill"></div></div>
+            <span class="progress-meta" data-role="progress-label">即将生成歌单</span>
+          </div>
+
+          <div class="options" data-role="options"></div>
+
+          <p class="footnote" data-role="question-footnote">这是最后一步。选定场景后，AOTD 会把你的疲惫、需要与夜晚画面折叠成一张今晚的专属歌单。</p>
+        </main>
+
+        <footer>
+          <a class="cta-primary" href="#" data-role="next">生成今晚歌单</a>
+          <p class="footer-copy">歌单结果页会展示情绪摘要、旅程段落与分享入口，方便继续接线到后续播放与传播。</p>
+        </footer>
+      </div>
+    </section>
+
+    <aside class="aside-panel">
+      <p class="aside-panel__eyebrow">Final Step</p>
+      <div class="aside-panel__card">
+        <strong>同一模板推进至结果</strong>
+        <p>与前两题保持相同舞台、状态栏与卡片语言，只把选项改成更具镜头感的场景描述。</p>
+      </div>
+    </aside>
+  </div>
+
+  <script type="module">
+    import { initQuestionPage } from "/scripts/aotd-app.js";
+    initQuestionPage("emotionalImagery");
+  </script>
+</body>
+</html>

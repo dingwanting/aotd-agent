@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AOTD · 第二题</title>
+  <link rel="stylesheet" href="/colors_and_type.css" />
+  <link rel="stylesheet" href="/styles/aotd-shell.css" />
+</head>
+<body>
+  <div class="stage">
+    <aside class="aside-panel">
+      <p class="aside-panel__eyebrow">AOTD</p>
+      <div class="aside-panel__card">
+        <strong>第二步，确认需求</strong>
+        <p>在回家路上，你最想被音乐带往哪里，决定了歌单会偏向修复、陪伴还是轻微奖励感。</p>
+      </div>
+    </aside>
+
+    <section class="device" aria-label="AOTD 第二题页面">
+      <div class="screen">
+        <div class="statusbar">
+          <span>19:24</span>
+          <div class="status-icons" aria-hidden="true"><span></span><span></span><span></span></div>
+        </div>
+
+        <div class="topbar">
+          <a class="ghost" href="/pages/question-drain.html" data-role="back" aria-label="返回上一题">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M15 18L9 12L15 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </a>
+          <span class="progress-meta" data-role="step">02/03</span>
+        </div>
+
+        <main>
+          <section class="card-block hero-card">
+            <p class="eyebrow">第二题</p>
+            <h1 data-role="question-title">现在回家的路，你最想获得什么？</h1>
+            <p class="hint" data-role="question-hint">这一题决定歌单要更靠近抚平、补能还是陪伴，让接下来的三十分钟更像为你单独调过的夜色。</p>
+          </section>
+
+          <div class="progress-row" aria-label="问题进度">
+            <div class="progress-track"><div class="progress-fill" data-role="progress-fill"></div></div>
+            <span class="progress-meta" data-role="progress-label">节奏正在成形</span>
+          </div>
+
+          <div class="options" data-role="options"></div>
+
+          <p class="footnote" data-role="question-footnote">不需要选最正确的，只选此刻最想要的那一个。歌单会顺着这个方向，把今晚慢慢接住。</p>
+        </main>
+
+        <footer>
+          <a class="cta-primary" href="#" data-role="next">继续</a>
+          <p class="footer-copy">AOTD 把你的需求嵌入情绪路径里，生成更贴近今晚回家节奏的歌单结果。</p>
+        </footer>
+      </div>
+    </section>
+
+    <aside class="aside-panel">
+      <p class="aside-panel__eyebrow">Shared Shell</p>
+      <div class="aside-panel__card">
+        <strong>继承同一壳层</strong>
+        <p>状态栏、标题节奏、卡片尺寸与底部主操作区保持一致，只在文案与进度上推进一步。</p>
+      </div>
+    </aside>
+  </div>
+
+  <script type="module">
+    import { initQuestionPage } from "/scripts/aotd-app.js";
+    initQuestionPage("emotionalNeed");
+  </script>
+</body>
+</html>

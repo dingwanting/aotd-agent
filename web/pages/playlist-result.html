@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AOTD · 今晚歌单</title>
+  <link rel="stylesheet" href="/colors_and_type.css" />
+  <link rel="stylesheet" href="/styles/aotd-shell.css" />
+</head>
+<body>
+  <div class="stage">
+    <aside class="aside-panel">
+      <p class="aside-panel__eyebrow">Result Focus</p>
+      <div class="aside-panel__card">
+        <strong>结果页像今晚专属专辑封面</strong>
+        <p>不是报表，而是一张有情绪重量的夜间产品卡面：先给安静开场，再让歌单慢慢陪你回家。</p>
+      </div>
+    </aside>
+
+    <section class="device" aria-label="AOTD 歌单结果页">
+      <div class="screen">
+        <div class="statusbar">
+          <span>19:24</span>
+          <div class="status-icons" aria-hidden="true"><span></span><span></span><span></span></div>
+        </div>
+
+        <div class="topbar">
+          <a class="ghost" href="/pages/question-scene.html" data-role="back" aria-label="返回上一页">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M15 18L9 12L15 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </a>
+          <span class="badge">Tonight Mix</span>
+        </div>
+
+        <main>
+          <div data-role="status"></div>
+
+          <div data-role="result-content" hidden>
+            <section class="intro">
+              <p class="eyebrow">今晚的你</p>
+              <h1 data-role="intro-title">正在生成今晚的开场文案...</h1>
+              <p class="hint" data-role="intro-support"></p>
+            </section>
+
+            <section class="cover-card">
+              <div class="cover-art">
+                <div class="cover-mark">
+                  <span>AOTD</span>
+                  <span>19:24</span>
+                </div>
+                <div>
+                  <p class="eyebrow">Tonight Album</p>
+                  <h2 class="cover-title" data-role="cover-title">今晚歌单</h2>
+                  <p class="hint" data-role="cover-subtitle"></p>
+                  <div class="cover-meta">
+                    <span data-role="cover-duration">约 32 分钟</span>
+                    <span data-role="cover-count">8 首曲目</span>
+                    <span data-role="cover-energy">低压舒缓</span>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <section class="tracks">
+              <p class="eyebrow">今晚歌单</p>
+              <p class="hint">优先直达网易云单曲；如果某首还没有精确 ID，会自动降级为搜索打开。</p>
+              <div class="track-list" data-role="track-list"></div>
+            </section>
+          </div>
+        </main>
+
+        <footer>
+          <div class="button-row">
+            <a class="action action--primary" href="#" data-role="play">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M8 6V18L18 12L8 6Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
+              <span>播放今晚歌单</span>
+            </a>
+            <a class="action action--secondary" href="/pages/share-card.html" data-role="share">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M12 5V15M12 5L8.5 8.5M12 5L15.5 8.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M6 15.5V17C6 18.1046 6.89543 19 8 19H16C17.1046 19 18 18.1046 18 17V15.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+              <span>分享卡片</span>
+            </a>
+          </div>
+          <p class="footer-copy">今晚的结果页会保留你的情绪摘要与场景标签，方便稍后再次打开或生成分享卡。</p>
+        </footer>
+      </div>
+    </section>
+
+    <aside class="aside-panel">
+      <p class="aside-panel__eyebrow">Mood Route</p>
+      <div class="aside-panel__card">
+        <strong>冷紫主轴，雾青只做点亮</strong>
+        <p>封面卡与旅程段落维持高级夜间质感，让分享欲来自情绪共鸣，而不是装饰堆叠。</p>
+      </div>
+    </aside>
+  </div>
+
+  <script type="module">
+    import { initResultPage } from "/scripts/aotd-app.js";
+    initResultPage();
+  </script>
+</body>
+</html>

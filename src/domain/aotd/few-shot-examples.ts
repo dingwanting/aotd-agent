@@ -1,0 +1,141 @@
+import type { AotdPlan } from "./types.js";
+
+export interface FewShotExample {
+  input: string;
+  output: AotdPlan;
+}
+
+export const aotdFewShotExamples: FewShotExample[] = [
+  {
+    input: [
+      "问题一·情绪消耗源：工作拉扯",
+      "问题二·情绪需求：排水放松",
+      "问题三·情绪意境：雨夜窗边",
+    ].join("\n"),
+    output: {
+      consumptionSource: "工作拉扯",
+      emotionalNeed: "排水放松",
+      emotionalImagery: "雨夜窗边",
+      userIntent: "下班放空，缓慢排水",
+      todayStateSummary: "今天主要被工作拉扯消耗，当前需要从紧绷和内耗里慢慢退出来。",
+      moodSignals: ["疲惫", "轻微焦虑", "需要松弛"],
+      sceneSignals: ["下班后", "独处", "雨夜窗边"],
+      objectiveSignals: ["排水", "情绪缓降", "降低精神负载"],
+      constraints: ["不要太炸", "不要过强节奏", "避免压抑过深"],
+      playlistStrategy: "从低刺激、温和人声和舒缓律动切入，前两首先降躁，后续再进入更深层放松。",
+      queryHints: ["recovery", "rainy night", "soft vocal", "wind down"],
+      explanationStyle: "像导购一样温柔解释为什么这组歌适合此刻。",
+      uncertainty: [],
+    },
+  },
+  {
+    input: [
+      "问题一·情绪消耗源：信息过载",
+      "问题二·情绪需求：稳定专注",
+      "问题三·情绪意境：房间独处",
+    ].join("\n"),
+    output: {
+      consumptionSource: "信息过载",
+      emotionalNeed: "稳定专注",
+      emotionalImagery: "房间独处",
+      userIntent: "提案前夜的专注陪伴",
+      todayStateSummary: "今天被大量信息和任务打散了注意力，现在更需要稳定心神、把注意力收回来。",
+      moodSignals: ["紧张", "需要稳定", "需要专注"],
+      sceneSignals: ["夜晚", "房间独处", "桌面办公"],
+      objectiveSignals: ["提高专注", "保持清醒", "减少分心"],
+      constraints: ["不要太硬核电子", "避免歌词过密", "不要过度煽情"],
+      playlistStrategy: "优先选择中低存在感的节奏型歌曲，保留轻微推进感，但控制情绪起伏。",
+      queryHints: ["focus", "steady groove", "light instrumental", "productive night"],
+      explanationStyle: "偏理性、简洁，强调功能性和状态管理。",
+      uncertainty: [],
+    },
+  },
+  {
+    input: [
+      "问题一·情绪消耗源：空心麻木",
+      "问题二·情绪需求：重新启动",
+      "问题三·情绪意境：房间独处",
+    ].join("\n"),
+    output: {
+      consumptionSource: "空心麻木",
+      emotionalNeed: "重新启动",
+      emotionalImagery: "房间独处",
+      userIntent: "周末整理家的轻推进陪伴",
+      todayStateSummary: "今天更像是一种轻微失速和发空，需要被慢慢推一把，重新进入生活节奏。",
+      moodSignals: ["松散", "想启动", "需要一点行动感"],
+      sceneSignals: ["周末下午", "家务整理", "房间独处"],
+      objectiveSignals: ["进入状态", "维持节奏", "不被噪音打断"],
+      constraints: ["不要太吵", "不要太炸", "避免过于慵懒"],
+      playlistStrategy: "用中等节奏和清爽律动带起动作节拍，让整理过程有流动感，但不制造压迫噪音。",
+      queryHints: ["cleaning", "light groove", "weekend tidy", "soft upbeat"],
+      explanationStyle: "像生活方式编辑一样，强调节奏感和空间氛围。",
+      uncertainty: [],
+    },
+  },
+  {
+    input: [
+      "问题一·情绪消耗源：空心麻木",
+      "问题二·情绪需求：柔软回暖",
+      "问题三·情绪意境：夜晚散步",
+    ].join("\n"),
+    output: {
+      consumptionSource: "空心麻木",
+      emotionalNeed: "柔软回暖",
+      emotionalImagery: "夜晚散步",
+      userIntent: "工作透支后的情绪回收",
+      todayStateSummary: "今天像是被工作抽空了一点感受力，需要慢慢找回和自己的连接感。",
+      moodSignals: ["麻木", "空心", "需要被接住"],
+      sceneSignals: ["下班后", "夜晚散步", "低能量时段"],
+      objectiveSignals: ["找回感受力", "恢复连接感", "慢慢回暖"],
+      constraints: ["不要过于丧", "避免情绪过猛", "不要鸡血式鼓励"],
+      playlistStrategy: "先用低刺激、温暖包裹感的作品接住情绪，再逐步加入微亮但不突兀的歌，让情绪缓慢回温。",
+      queryHints: ["gentle healing", "warm indie", "emotional recovery", "soft comfort"],
+      explanationStyle: "像理解你状态的朋友，先共情再给陪伴。",
+      uncertainty: [],
+    },
+  },
+  {
+    input: [
+      "问题一·情绪消耗源：轻微焦虑",
+      "问题二·情绪需求：重新启动",
+      "问题三·情绪意境：城市霓虹",
+    ].join("\n"),
+    output: {
+      consumptionSource: "轻微焦虑",
+      emotionalNeed: "重新启动",
+      emotionalImagery: "城市霓虹",
+      userIntent: "赴约路上的魅力预热",
+      todayStateSummary: "你并不是低落，而是带着一点对见面的紧张，希望把自己调到更有魅力也更稳定的状态。",
+      moodSignals: ["期待", "紧张", "想更有自信"],
+      sceneSignals: ["出门路上", "约会前", "城市霓虹"],
+      objectiveSignals: ["提升气场", "稳定状态", "放大个人魅力"],
+      constraints: ["不要太油", "避免土味煽情", "保留高级感"],
+      playlistStrategy: "选择有线条感和步伐感的作品，让情绪提起来但不浮夸，保持一点克制的性感和都市感。",
+      queryHints: ["confident", "date night", "cool pop", "city walk", "stylish groove"],
+      explanationStyle: "像时尚买手一样，强调氛围与气场。",
+      uncertainty: [],
+    },
+  },
+  {
+    input: [
+      "问题一·情绪消耗源：关系内耗",
+      "问题二·情绪需求：被接住",
+      "问题三·情绪意境：雨夜窗边",
+    ].join("\n"),
+    output: {
+      consumptionSource: "关系内耗",
+      emotionalNeed: "被接住",
+      emotionalImagery: "雨夜窗边",
+      userIntent: "雨夜里的温柔承接",
+      todayStateSummary: "今天更像是被关系里的来回拉扯耗空了，需要一个能把你稳稳接住的情绪容器。",
+      moodSignals: ["安静", "微感性", "需要被包裹"],
+      sceneSignals: ["雨夜", "窗边", "独处"],
+      objectiveSignals: ["增强氛围感", "保留柔软", "避免过度低落"],
+      constraints: ["不要太苦", "不要陷入失恋叙事", "避免过度灰暗"],
+      playlistStrategy: "优先选择带空气感、湿润质地和细节留白的作品，让雨夜更立体，但整体情绪保持轻柔可呼吸。",
+      queryHints: ["companion", "rainy night", "soft melancholy", "wet air", "gentle mood"],
+      explanationStyle: "偏氛围叙述，像在描述一张雨天情绪海报。",
+      uncertainty: [],
+    },
+  },
+];

@@ -1,0 +1,13 @@
+{
+  "appid": "wxd8a01a7ed2366d1d",
+  "projectname": "aotd-mini",
+  "miniprogramRoot": "miniprogram/",
+  "compileType": "miniprogram",
+  "setting": {
+    "es6": true,
+    "enhance": true,
+    "minified": true,
+    "urlCheck": false
+  },
+  "condition": {}
+}

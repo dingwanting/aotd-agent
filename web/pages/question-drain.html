@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AOTD · 第一题</title>
+  <link rel="stylesheet" href="/colors_and_type.css" />
+  <link rel="stylesheet" href="/styles/aotd-shell.css" />
+</head>
+<body>
+  <div class="stage">
+    <aside class="aside-panel">
+      <p class="aside-panel__eyebrow">AOTD</p>
+      <div class="aside-panel__card">
+        <strong>夜色里的三问</strong>
+        <p>用最少的输入换来最贴近今晚状态的歌单，让下班路安静地接住你。</p>
+      </div>
+    </aside>
+
+    <section class="device" aria-label="AOTD 第一题页面">
+      <div class="screen">
+        <div class="statusbar">
+          <span>19:24</span>
+          <div class="status-icons" aria-hidden="true"><span></span><span></span><span></span></div>
+        </div>
+
+        <div class="topbar">
+          <a class="ghost" href="#" aria-label="返回">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M15 18L9 12L15 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </a>
+          <span class="progress-meta" data-role="step">01/03</span>
+        </div>
+
+        <main>
+          <section class="card-block hero-card">
+            <p class="eyebrow">第一题</p>
+            <h1 data-role="question-title">今天最消耗你的是什么？</h1>
+            <p class="hint" data-role="question-hint">不用总结整天，只要抓住最明显的疲惫来源，AOTD 会从这里开始判断今晚适合怎样的陪伴。</p>
+          </section>
+
+          <div class="progress-row" aria-label="问题进度">
+            <div class="progress-track"><div class="progress-fill" data-role="progress-fill"></div></div>
+            <span class="progress-meta" data-role="progress-label">起点已记录</span>
+          </div>
+
+          <div class="options" data-role="options"></div>
+
+          <p class="footnote" data-role="question-footnote">先选一个最接近你的答案就好，不需要绝对准确，今晚的歌单会自己留出呼吸空间。</p>
+        </main>
+
+        <footer>
+          <a class="cta-primary" href="#" data-role="next">继续</a>
+          <p class="footer-copy">AOTD 会依据你的回答生成今晚专属歌单建议，结果可继续分享给朋友。</p>
+        </footer>
+      </div>
+    </section>
+
+    <aside class="aside-panel">
+      <p class="aside-panel__eyebrow">Mood Board</p>
+      <div class="aside-panel__card">
+        <strong>冷紫主色，雾青提亮</strong>
+        <p>玻璃卡片与轻描边保持一致，让移动端画布在桌面舞台上依然完整而安静。</p>
+      </div>
+    </aside>
+  </div>
+
+  <script type="module">
+    import { initQuestionPage } from "/scripts/aotd-app.js";
+    initQuestionPage("consumptionSource");
+  </script>
+</body>
+</html>

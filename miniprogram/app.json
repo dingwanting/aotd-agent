@@ -1,0 +1,15 @@
+{
+  "pages": [
+    "pages/question/index",
+    "pages/result/index"
+  ],
+  "window": {
+    "navigationBarTitleText": "AOTD",
+    "navigationBarBackgroundColor": "#fff7fb",
+    "navigationBarTextStyle": "black",
+    "backgroundColor": "#fff7fb",
+    "backgroundTextStyle": "dark"
+  },
+  "style": "v2",
+  "sitemapLocation": "sitemap.json"
+}

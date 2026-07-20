@@ -1,0 +1,29 @@
+{
+  "name": "aotd-agent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "AOTD agent scaffold with Claude-style runtime and few-shot prompt organization.",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "dev:web": "tsx src/server.ts",
+    "fill:original-ids": "tsx src/scripts/fill-original-ids.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/server.js",
+    "start:cli": "node dist/index.js",
+    "check": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "dotenv": "^16.6.1",
+    "xlsx": "^0.18.5",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.15",
+    "tsx": "^4.20.3",
+    "typescript": "^5.9.2"
+  }
+}

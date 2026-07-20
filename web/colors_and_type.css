@@ -1,0 +1,67 @@
+:root {
+  color-scheme: light;
+  --aotd-background: #fff7fb;
+  --aotd-foreground: #4a3942;
+  --aotd-card: rgba(255, 255, 255, 0.76);
+  --aotd-card-foreground: #513d47;
+  --aotd-popover: rgba(255, 250, 253, 0.96);
+  --aotd-popover-foreground: #513d47;
+  --aotd-primary: #e58ba8;
+  --aotd-primary-foreground: #ffffff;
+  --aotd-muted: rgba(245, 227, 234, 0.72);
+  --aotd-muted-foreground: rgba(109, 84, 94, 0.78);
+  --aotd-border: rgba(214, 186, 197, 0.44);
+  --aotd-input: rgba(238, 216, 225, 0.62);
+  --aotd-ring: rgba(229, 139, 168, 0.34);
+  --aotd-secondary: rgba(255, 255, 255, 0.52);
+  --aotd-secondary-foreground: #59444f;
+  --aotd-accent: rgba(226, 211, 229, 0.5);
+  --aotd-accent-foreground: #ce7493;
+  --aotd-destructive: #d96d87;
+  --aotd-destructive-foreground: #fffafb;
+  --aotd-chart-1: #e58ba8;
+  --aotd-chart-2: #c9a7d3;
+  --aotd-chart-3: #aebadb;
+  --aotd-chart-4: #f2b5c7;
+  --aotd-chart-5: #eccba0;
+  --aotd-sidebar: rgba(255, 250, 252, 0.88);
+  --aotd-sidebar-foreground: #4f3b45;
+  --aotd-sidebar-primary: #e58ba8;
+  --aotd-sidebar-primary-foreground: #ffffff;
+  --aotd-sidebar-accent: rgba(244, 229, 235, 0.7);
+  --aotd-sidebar-accent-foreground: #59444f;
+  --aotd-radius-sm: 4px;
+  --aotd-radius-md: 8px;
+  --aotd-radius-lg: 16px;
+  --aotd-radius-xl: 16px;
+  --state-success: #aebfa6;
+  --state-warning: #eccba0;
+  --state-error: #d96d87;
+  --state-info: #c096bc;
+  --aotd-surface-strong: rgba(255, 255, 255, 0.78);
+  --aotd-surface-soft: rgba(255, 249, 252, 0.58);
+  --aotd-overlay: rgba(201, 172, 184, 0.26);
+  --aotd-gradient-top: radial-gradient(circle at 18% 0%, rgba(233, 163, 187, 0.28), transparent 34%), radial-gradient(circle at 84% 10%, rgba(212, 198, 230, 0.22), transparent 26%), linear-gradient(180deg, #fffdfd 0%, #fff7fb 58%, #fdf0f6 100%);
+  --aotd-gradient-card: linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(253, 240, 246, 0.82));
+  --aotd-gradient-highlight: linear-gradient(135deg, rgba(229, 139, 168, 0.96), rgba(206, 116, 147, 0.78));
+  --aotd-shadow-float: 0 18px 36px rgba(191, 160, 174, 0.16);
+  --aotd-shadow-static: 0 8px 24px rgba(191, 160, 174, 0.08);
+  --aotd-font-title: "SF Pro Display", "PingFang SC", "Noto Sans SC", "Helvetica Neue", Arial, sans-serif;
+  --aotd-font-body: "SF Pro Text", "PingFang SC", "Noto Sans SC", "Helvetica Neue", Arial, sans-serif;
+  --shell-glow-primary: rgba(233, 163, 187, 0.34);
+  --shell-glow-accent: rgba(212, 198, 230, 0.24);
+  --shell-grid: rgba(214, 186, 197, 0.28);
+  --shell-strong: rgba(255, 255, 255, 0.72);
+  --shell-soft: rgba(255, 255, 255, 0.62);
+  --shell-pill: rgba(255, 249, 252, 0.62);
+  --shell-stage-fade: rgba(255, 247, 251, 0);
+}
+
+body {
+  font-family: var(--aotd-font-body);
+}
+
+.aotd-display {
+  font-family: var(--aotd-font-title);
+  letter-spacing: -0.03em;
+}

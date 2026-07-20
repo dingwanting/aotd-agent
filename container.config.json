@@ -1,0 +1,28 @@
+{
+  "containerPort": 80,
+  "dockerfilePath": "Dockerfile",
+  "buildDir": "",
+  "minNum": 0,
+  "maxNum": 2,
+  "cpu": 1,
+  "mem": 2,
+  "policyType": "cpu",
+  "policyThreshold": 80,
+  "policyDetails": [
+    {
+      "PolicyType": "cpu",
+      "PolicyThreshold": 80
+    },
+    {
+      "PolicyType": "mem",
+      "PolicyThreshold": 80
+    }
+  ],
+  "envParams": {
+    "NODE_ENV": "production",
+    "AOTD_WORKBOOK_PATH": "data/AOTD_500_Song_Library_Enhanced.xlsx",
+    "NETEASE_AUDIO_API_BASE": "https://api.91videos.vip"
+  },
+  "customLogs": "stdout",
+  "initialDelaySeconds": 3
+}

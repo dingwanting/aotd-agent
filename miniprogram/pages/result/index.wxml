@@ -1,0 +1,77 @@
+<view class="page-shell">
+  <view wx:if="{{loading}}" class="state card">
+    <text class="eyebrow">AOTD</text>
+    <view class="state-title">正在生成今晚歌单...</view>
+    <view class="muted">我们正在根据你的三题答案整理今晚的情绪路线。</view>
+  </view>
+
+  <view wx:elif="{{errorMessage}}" class="state card">
+    <text class="eyebrow">暂时失败</text>
+    <view class="state-title">{{errorMessage}}</view>
+    <view class="actions">
+      <button class="action-primary" bindtap="handleRetry">重新生成</button>
+      <button class="action-secondary" bindtap="handleRestart">回到问答</button>
+    </view>
+  </view>
+
+  <block wx:else>
+    <view class="hero card">
+      <text class="eyebrow">今晚的你</text>
+      <view class="hero-title">{{result.analysis.hitLine || result.analysis.todayState}}</view>
+      <view class="hero-desc muted">{{result.analysis.todayState || result.playlist.description}}</view>
+    </view>
+
+    <view class="cover card">
+      <text class="eyebrow">Tonight Album</text>
+      <view class="cover-title">{{result.playlist.title}}</view>
+      <view class="cover-subtitle muted">{{result.playlist.subtitle}}</view>
+    </view>
+
+    <view class="tracks">
+      <text class="eyebrow">今晚歌单</text>
+      <view class="muted intro-copy">现在每首歌都可以先在小程序里试听；如果想去网易云继续听完整版，也可以直接复制搜索词或整单带走。</view>
+      <view class="guide card">
+        <view class="guide-title">先试听，再去网易云继续听</view>
+        <view class="guide-text muted">1. 先点“小程序内试听”  2. 喜欢再复制到网易云  3. 粘贴搜索即可继续播放</view>
+        <button class="playlist-copy-button" bindtap="handleCopyPlaylist">复制整张歌单</button>
+      </view>
+      <view
+        wx:for="{{result.playlist.tracks}}"
+        wx:key="rank"
+        class="track card"
+      >
+        <view class="track-main">
+          <view class="track-rank">#{{item.rank}}</view>
+          <view class="track-copy">
+            <view class="track-title">{{item.song.title}}</view>
+            <view class="track-artist muted">{{item.song.artist}}</view>
+            <view class="track-reason muted">{{item.reason}}</view>
+            <view class="track-keyword">网易云搜索词：{{item.song.cliKeyword || item.song.title + ' ' + item.song.artist}}</view>
+          </view>
+        </view>
+        <view class="track-actions">
+          <view
+            class="play-button {{playingTrackIndex === index ? 'play-button--active' : ''}} {{loadingTrackIndex === index ? 'play-button--loading' : ''}}"
+            data-index="{{index}}"
+            bindtap="handlePlayTrack"
+          >
+            {{
+              loadingTrackIndex === index
+                ? '正在缓冲...'
+                : playingTrackIndex === index
+                  ? '暂停试听'
+                  : '小程序内试听'
+            }}
+          </view>
+          <view class="copy-button {{copiedTrackIndex === index ? 'copy-button--active' : ''}}" data-index="{{index}}" bindtap="handleCopyTrack">
+            {{copiedTrackIndex === index ? '已复制，去网易云粘贴' : '复制到网易云搜索'}}
+          </view>
+        </view>
+      </view>
+    </view>
+
+    <view class="actions">
+      <button class="action-secondary" bindtap="handleRestart">重新回答</button>
+    </view>
+  </block>
+</view>
