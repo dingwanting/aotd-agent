@@ -1,0 +1,11 @@
+.git
+.gitignore
+.env
+.env.local
+.DS_Store
+node_modules
+dist
+coverage
+npm-debug.log*
+project.private.config.json
+miniprogram/project.private.config.json
