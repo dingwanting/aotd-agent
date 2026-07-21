@@ -57,6 +57,16 @@ function buildAudioResolveParams(track) {
   };
 }
 
+function buildTempAudioFilePath(track) {
+  const song = track.song || {};
+  const rawName = song.originalId || `${song.title || "aotd"}-${song.artist || "preview"}`;
+  const safeName = String(rawName)
+    .replace(/[^\w.-]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+  return `${wx.env.USER_DATA_PATH}/${safeName || "aotd-preview"}.mp3`;
+}
+
 function resolveAudioViaCloudContainer(track) {
   const data = buildAudioResolveParams(track);
   const serviceNames = Array.from(
@@ -105,6 +115,73 @@ function resolveAudioViaCloudContainer(track) {
           }
 
           reject(new Error(error && error.errMsg ? error.errMsg : "当前无法连接试听服务。"));
+        }
+      });
+    };
+
+    tryRequest(0);
+  });
+}
+
+function fetchAudioTempFileViaCloudContainer(track) {
+  const data = buildAudioResolveParams(track);
+  const filePath = buildTempAudioFilePath(track);
+  const fs = wx.getFileSystemManager();
+  const serviceNames = Array.from(
+    new Set([CLOUD_SERVICE_NAME].concat(CLOUD_SERVICE_FALLBACKS || []).filter(Boolean))
+  );
+
+  return new Promise((resolve, reject) => {
+    const tryRequest = (index) => {
+      const serviceName = serviceNames[index];
+      if (!serviceName) {
+        reject(new Error("当前无法连接试听服务，请检查云托管服务配置。"));
+        return;
+      }
+
+      wx.cloud.callContainer({
+        config: {
+          env: CLOUD_ENV_ID
+        },
+        path: "/api/netease/audio/stream",
+        method: "GET",
+        header: {
+          "X-WX-SERVICE": serviceName
+        },
+        data,
+        responseType: "arraybuffer",
+        success: (response) => {
+          const arrayBuffer = response && response.data;
+          if (response.statusCode >= 200 && response.statusCode < 300 && arrayBuffer && arrayBuffer.byteLength) {
+            fs.writeFile({
+              filePath,
+              data: arrayBuffer,
+              encoding: "binary",
+              success: () => resolve(filePath),
+              fail: (error) => reject(new Error(error && error.errMsg ? error.errMsg : "试听文件写入失败。"))
+            });
+            return;
+          }
+
+          if (index < serviceNames.length - 1) {
+            tryRequest(index + 1);
+            return;
+          }
+
+          // 如果流式拉取失败，再退回到直链播放方案，尽量保住可用率。
+          resolveAudioViaCloudContainer(track)
+            .then(resolve)
+            .catch((error) => reject(error));
+        },
+        fail: (error) => {
+          if (index < serviceNames.length - 1) {
+            tryRequest(index + 1);
+            return;
+          }
+
+          resolveAudioViaCloudContainer(track)
+            .then(resolve)
+            .catch(() => reject(new Error(error && error.errMsg ? error.errMsg : "当前无法连接试听服务。")));
         }
       });
     };
@@ -262,6 +339,14 @@ Page({
     });
 
     audioContext.onError(() => {
+      const filePath = this.currentAudioFilePath;
+      if (filePath) {
+        wx.getFileSystemManager().unlink({
+          filePath,
+          fail: () => {}
+        });
+        this.currentAudioFilePath = "";
+      }
       this.setData({
         playingTrackIndex: -1,
         loadingTrackIndex: -1
@@ -282,6 +367,14 @@ Page({
       this.audioContext.destroy();
       this.audioContext = null;
       this.pendingTrackIndex = -1;
+    }
+
+    if (this.currentAudioFilePath) {
+      wx.getFileSystemManager().unlink({
+        filePath: this.currentAudioFilePath,
+        fail: () => {}
+      });
+      this.currentAudioFilePath = "";
     }
   },
 
@@ -312,13 +405,18 @@ Page({
     Promise.resolve()
       .then(() => {
         if (USE_CLOUD_CONTAINER) {
-          return resolveAudioViaCloudContainer(track);
+          return fetchAudioTempFileViaCloudContainer(track);
         }
         return buildAudioStreamUrl(track);
       })
       .then((audioUrl) => {
         if (this.pendingTrackIndex !== numericIndex) {
           return;
+        }
+        if (audioUrl.indexOf(wx.env.USER_DATA_PATH) === 0) {
+          this.currentAudioFilePath = audioUrl;
+        } else {
+          this.currentAudioFilePath = "";
         }
         audioContext.src = audioUrl;
       })
