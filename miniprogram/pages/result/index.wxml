@@ -29,11 +29,12 @@
 
     <view class="tracks">
       <text class="eyebrow">今晚歌单</text>
-      <view class="muted intro-copy">现在每首歌都可以先在小程序里试听；如果想去网易云继续听完整版，也可以直接复制搜索词或整单带走。</view>
+      <view class="muted intro-copy">
+        {{supportsInlineAudio ? '现在每首歌都可以先在小程序里试听；如果想去网易云继续听完整版，也可以直接复制搜索词。' : '体验版先保留稳定的网易云承接链路，点击下方按钮复制搜索词后去网易云继续听完整版。'}}
+      </view>
       <view class="guide card">
-        <view class="guide-title">先试听，再去网易云继续听</view>
-        <view class="guide-text muted">1. 先点“小程序内试听”  2. 喜欢再复制到网易云  3. 粘贴搜索即可继续播放</view>
-        <button class="playlist-copy-button" bindtap="handleCopyPlaylist">复制整张歌单</button>
+        <view class="guide-title">{{supportsInlineAudio ? '先试听，再去网易云继续听' : '复制单曲，去网易云继续听'}}</view>
+        <view class="guide-text muted">{{supportsInlineAudio ? '1. 先点“小程序内试听”  2. 喜欢再复制到网易云  3. 粘贴搜索即可继续播放' : '1. 点“复制到网易云搜索”  2. 打开网易云  3. 粘贴搜索即可继续播放'}}</view>
       </view>
       <view
         wx:for="{{result.playlist.tracks}}"
@@ -51,6 +52,7 @@
         </view>
         <view class="track-actions">
           <view
+            wx:if="{{supportsInlineAudio}}"
             class="play-button {{playingTrackIndex === index ? 'play-button--active' : ''}} {{loadingTrackIndex === index ? 'play-button--loading' : ''}}"
             data-index="{{index}}"
             bindtap="handlePlayTrack"
@@ -63,7 +65,7 @@
                   : '小程序内试听'
             }}
           </view>
-          <view class="copy-button {{copiedTrackIndex === index ? 'copy-button--active' : ''}}" data-index="{{index}}" bindtap="handleCopyTrack">
+          <view class="copy-button {{copiedTrackIndex === index ? 'copy-button--active' : ''}} {{supportsInlineAudio ? '' : 'copy-button--single'}}" data-index="{{index}}" bindtap="handleCopyTrack">
             {{copiedTrackIndex === index ? '已复制，去网易云粘贴' : '复制到网易云搜索'}}
           </view>
         </view>
