@@ -1,6 +1,8 @@
 const { STORAGE_KEYS, getStorage, clearAnswers, clearQuestionDeck, clearResult } = require("../../utils/storage");
 const { requestRecommendation, loadResultIfMatched } = require("../../utils/api");
-const { API_BASE_URL } = require("../../utils/config");
+const { API_BASE_URL, USE_CLOUD_CONTAINER } = require("../../utils/config");
+
+const SUPPORT_INLINE_AUDIO = !USE_CLOUD_CONTAINER;
 
 function getAnswers() {
   return getStorage(STORAGE_KEYS.answers, {});
@@ -15,18 +17,6 @@ function buildTrackKeyword(track) {
     return cliKeyword;
   }
   return [title, artist].filter(Boolean).join(" ");
-}
-
-function buildPlaylistCopyText(result) {
-  const tracks = result && result.playlist && result.playlist.tracks ? result.playlist.tracks : [];
-  const title = result && result.playlist ? result.playlist.title : "今晚歌单";
-  const lines = [`${title}`, ""];
-  tracks.forEach((track, index) => {
-    const song = track.song || {};
-    lines.push(`${index + 1}. ${song.title || ""} - ${song.artist || ""}`);
-  });
-  lines.push("", "复制后可直接到网易云音乐粘贴搜索。");
-  return lines.join("\n");
 }
 
 function buildAudioStreamUrl(track) {
@@ -57,6 +47,7 @@ Page({
     errorMessage: "",
     result: null,
     copiedTrackIndex: -1,
+    supportsInlineAudio: SUPPORT_INLINE_AUDIO,
     playingTrackIndex: -1,
     loadingTrackIndex: -1
   },
@@ -162,25 +153,11 @@ Page({
     });
   },
 
-  handleCopyPlaylist() {
-    const result = this.data.result;
-    if (!result || !result.playlist || !result.playlist.tracks || !result.playlist.tracks.length) {
-      return;
+  ensureAudioContext() {
+    if (!SUPPORT_INLINE_AUDIO) {
+      return null;
     }
 
-    wx.setClipboardData({
-      data: buildPlaylistCopyText(result),
-      success: () => {
-        wx.showModal({
-          title: "整单已复制",
-          content: "已复制今晚歌单。你可以直接粘贴到网易云音乐、聊天或备忘录里继续使用。",
-          showCancel: false
-        });
-      }
-    });
-  },
-
-  ensureAudioContext() {
     if (this.audioContext) {
       return this.audioContext;
     }
@@ -250,6 +227,15 @@ Page({
     }
 
     const audioContext = this.ensureAudioContext();
+    if (!audioContext) {
+      wx.showModal({
+        title: "当前版本不提供试听",
+        content: "体验版先保留稳定的网易云复制链路，避免试听能力影响整体可用性。",
+        showCancel: false
+      });
+      return;
+    }
+
     if (this.data.playingTrackIndex === numericIndex) {
       audioContext.stop();
       return;
