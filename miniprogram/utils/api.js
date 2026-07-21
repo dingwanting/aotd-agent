@@ -2,6 +2,7 @@ const {
   API_BASE_URL,
   CLOUD_ENV_ID,
   CLOUD_SERVICE_NAME,
+  CLOUD_SERVICE_FALLBACKS,
   USE_CLOUD_CONTAINER,
   USE_LOCAL_API,
 } = require("./config");
@@ -61,20 +62,42 @@ function requestRecommendation(answers) {
         return;
       }
 
-      wx.cloud.callContainer({
-        config: {
-          env: CLOUD_ENV_ID
-        },
-        path: "/api/aotd/recommendation",
-        method: "POST",
-        header: {
-          "content-type": "application/json",
-          "X-WX-SERVICE": CLOUD_SERVICE_NAME
-        },
-        data,
-        success: handleSuccess,
-        fail: handleFail,
-      });
+      const serviceNames = Array.from(
+        new Set([CLOUD_SERVICE_NAME].concat(CLOUD_SERVICE_FALLBACKS || []).filter(Boolean))
+      );
+
+      const tryCallContainer = (index) => {
+        const serviceName = serviceNames[index];
+        if (!serviceName) {
+          reject(new Error("当前无法连接推荐服务，请检查云托管环境 ID、服务名或小程序与云环境的关联状态。"));
+          return;
+        }
+
+        wx.cloud.callContainer({
+          config: {
+            env: CLOUD_ENV_ID
+          },
+          path: "/api/aotd/recommendation",
+          method: "POST",
+          header: {
+            "content-type": "application/json",
+            "X-WX-SERVICE": serviceName
+          },
+          data,
+          success: handleSuccess,
+          fail: (error) => {
+            if (index < serviceNames.length - 1) {
+              tryCallContainer(index + 1);
+              return;
+            }
+
+            const detail = error && error.errMsg ? `：${error.errMsg}` : "";
+            reject(new Error(`当前无法连接推荐服务，请检查云托管环境 ID、服务名或小程序与云环境的关联状态${detail}`));
+          },
+        });
+      };
+
+      tryCallContainer(0);
       return;
     }
 
