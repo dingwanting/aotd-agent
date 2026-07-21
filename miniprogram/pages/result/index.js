@@ -1,8 +1,14 @@
 const { STORAGE_KEYS, getStorage, clearAnswers, clearQuestionDeck, clearResult } = require("../../utils/storage");
 const { requestRecommendation, loadResultIfMatched } = require("../../utils/api");
-const { API_BASE_URL, USE_CLOUD_CONTAINER } = require("../../utils/config");
+const {
+  API_BASE_URL,
+  USE_CLOUD_CONTAINER,
+  CLOUD_ENV_ID,
+  CLOUD_SERVICE_NAME,
+  CLOUD_SERVICE_FALLBACKS,
+} = require("../../utils/config");
 
-const SUPPORT_INLINE_AUDIO = !USE_CLOUD_CONTAINER;
+const SUPPORT_INLINE_AUDIO = true;
 
 function getAnswers() {
   return getStorage(STORAGE_KEYS.answers, {});
@@ -39,6 +45,72 @@ function buildAudioStreamUrl(track) {
   }
 
   return `${API_BASE_URL}/api/netease/audio/stream?${params.join("&")}`;
+}
+
+function buildAudioResolveParams(track) {
+  const song = track.song || {};
+  return {
+    originalId: song.originalId ? String(song.originalId) : "",
+    title: song.title || "",
+    artist: song.artist || "",
+    keyword: buildTrackKeyword(track),
+  };
+}
+
+function resolveAudioViaCloudContainer(track) {
+  const data = buildAudioResolveParams(track);
+  const serviceNames = Array.from(
+    new Set([CLOUD_SERVICE_NAME].concat(CLOUD_SERVICE_FALLBACKS || []).filter(Boolean))
+  );
+
+  return new Promise((resolve, reject) => {
+    const tryRequest = (index) => {
+      const serviceName = serviceNames[index];
+      if (!serviceName) {
+        reject(new Error("当前无法连接试听服务，请检查云托管服务配置。"));
+        return;
+      }
+
+      wx.cloud.callContainer({
+        config: {
+          env: CLOUD_ENV_ID
+        },
+        path: "/api/netease/audio/resolve",
+        method: "GET",
+        header: {
+          "X-WX-SERVICE": serviceName
+        },
+        data,
+        success: (response) => {
+          if (response.statusCode >= 200 && response.statusCode < 300 && response.data && response.data.playable && response.data.audioUrl) {
+            resolve(response.data.audioUrl);
+            return;
+          }
+
+          if (index < serviceNames.length - 1) {
+            tryRequest(index + 1);
+            return;
+          }
+
+          const message =
+            response.data && (response.data.message || response.data.error)
+              ? response.data.message || response.data.error
+              : "当前没有拿到可播放音频流。";
+          reject(new Error(message));
+        },
+        fail: (error) => {
+          if (index < serviceNames.length - 1) {
+            tryRequest(index + 1);
+            return;
+          }
+
+          reject(new Error(error && error.errMsg ? error.errMsg : "当前无法连接试听服务。"));
+        }
+      });
+    };
+
+    tryRequest(0);
+  });
 }
 
 Page({
@@ -154,10 +226,6 @@ Page({
   },
 
   ensureAudioContext() {
-    if (!SUPPORT_INLINE_AUDIO) {
-      return null;
-    }
-
     if (this.audioContext) {
       return this.audioContext;
     }
@@ -200,7 +268,7 @@ Page({
       });
       wx.showModal({
         title: "当前无法播放",
-        content: "这首歌暂时没有拿到可播放音频流，你可以先复制到网易云继续听。",
+        content: "这首歌暂时没有稳定拿到可播放音频流，你可以先复制到网易云继续听。",
         showCancel: false
       });
     });
@@ -227,15 +295,6 @@ Page({
     }
 
     const audioContext = this.ensureAudioContext();
-    if (!audioContext) {
-      wx.showModal({
-        title: "当前版本不提供试听",
-        content: "体验版先保留稳定的网易云复制链路，避免试听能力影响整体可用性。",
-        showCancel: false
-      });
-      return;
-    }
-
     if (this.data.playingTrackIndex === numericIndex) {
       audioContext.stop();
       return;
@@ -249,6 +308,30 @@ Page({
 
     const song = track.song || {};
     audioContext.title = [song.title, song.artist].filter(Boolean).join(" - ") || "AOTD";
-    audioContext.src = buildAudioStreamUrl(track);
+
+    Promise.resolve()
+      .then(() => {
+        if (USE_CLOUD_CONTAINER) {
+          return resolveAudioViaCloudContainer(track);
+        }
+        return buildAudioStreamUrl(track);
+      })
+      .then((audioUrl) => {
+        if (this.pendingTrackIndex !== numericIndex) {
+          return;
+        }
+        audioContext.src = audioUrl;
+      })
+      .catch((error) => {
+        this.setData({
+          loadingTrackIndex: -1,
+          playingTrackIndex: -1
+        });
+        wx.showModal({
+          title: "当前无法播放",
+          content: error && error.message ? error.message : "这首歌暂时没有拿到可播放音频流，你可以先复制到网易云继续听。",
+          showCancel: false
+        });
+      });
   }
 });
