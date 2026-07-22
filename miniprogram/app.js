@@ -1,6 +1,6 @@
 const { CLOUD_ENV_ID, USE_CLOUD_CONTAINER } = require("./utils/config");
 const { STORAGE_KEYS, getStorage, setStorage, clearUser } = require("./utils/storage");
-const { requestWxLogin, requestProfile } = require("./utils/api");
+const { requestWxLogin, requestProfile, updateUserProfile } = require("./utils/api");
 
 App({
   onLaunch() {
@@ -74,6 +74,7 @@ App({
                   ? ` diagnostic=${JSON.stringify(diagnostic)}`
                   : ""),
             );
+            this.flushPendingProfile(profile.userId || "").catch(() => {});
             resolve(profile.userId || "");
           })
           .catch((error) => {
@@ -98,7 +99,11 @@ App({
     return requestProfile()
       .then((payload) => {
         const profile = payload && payload.profile ? payload.profile : null;
-        return profile && profile.userId ? profile.userId : "";
+        const userId = profile && profile.userId ? profile.userId : "";
+        if (userId) {
+          this.flushPendingProfile(userId).catch(() => {});
+        }
+        return userId;
       })
       .catch((error) => {
         console.warn("[aotd] refresh profile failed:", error && error.message ? error.message : error);
@@ -106,14 +111,32 @@ App({
       });
   },
 
+  async flushPendingProfile(userId) {
+    if (!userId) {
+      return;
+    }
+    const pendingProfile = getStorage(STORAGE_KEYS.pendingProfileSync, null);
+    if (!pendingProfile || typeof pendingProfile !== "object") {
+      return;
+    }
+    try {
+      await updateUserProfile(pendingProfile);
+      wx.removeStorageSync(STORAGE_KEYS.pendingProfileSync);
+    } catch (error) {
+      console.warn("[aotd] flush pending profile failed:", error && error.message ? error.message : error);
+    }
+  },
+
   async ensureUserSession() {
     let userId = getStorage(STORAGE_KEYS.userId, "");
     if (userId) {
+      this.flushPendingProfile(userId).catch(() => {});
       return userId;
     }
 
     userId = await this.bootstrapUser();
     if (userId) {
+      this.flushPendingProfile(userId).catch(() => {});
       return userId;
     }
 

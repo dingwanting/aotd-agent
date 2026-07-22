@@ -8,6 +8,7 @@ const STORAGE_KEYS = {
   nickname: "aotd.nickname",
   avatarFileId: "aotd.avatarFileId",
   avatarUrl: "aotd.avatarUrl",
+  pendingProfileSync: "aotd.pendingProfileSync",
   isAnonymous: "aotd.isAnonymous",
 };
 
@@ -67,6 +68,11 @@ function clearUser() {
   }
   try {
     wx.removeStorageSync(STORAGE_KEYS.avatarUrl);
+  } catch {
+    // ignore
+  }
+  try {
+    wx.removeStorageSync(STORAGE_KEYS.pendingProfileSync);
   } catch {
     // ignore
   }

@@ -149,9 +149,6 @@ Page({
       const userId = app && typeof app.ensureUserSession === "function"
         ? await app.ensureUserSession()
         : getStorage(STORAGE_KEYS.userId, "");
-      if (!userId) {
-        throw new Error("登录态初始化失败，请重试一次");
-      }
 
       wx.showLoading({
         title: "正在保存头像",
@@ -161,10 +158,16 @@ Page({
       setStorage(STORAGE_KEYS.nickname, nickname);
       setStorage(STORAGE_KEYS.avatarFileId, avatarFileId);
       setStorage(STORAGE_KEYS.avatarUrl, avatarFileId);
-      await updateUserProfile({
+      const profilePayload = {
         nickname,
         avatarFileId,
-      });
+      };
+      if (userId) {
+        await updateUserProfile(profilePayload);
+      } else {
+        setStorage(STORAGE_KEYS.pendingProfileSync, profilePayload);
+        console.warn("[aotd] profile saved locally, waiting for session sync");
+      }
       this.setData({
         avatarFileId,
         avatarUrl: avatarFileId,
