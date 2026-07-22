@@ -140,7 +140,7 @@ function buildAudioStreamUrl(track) {
   return `${API_BASE_URL}/api/netease/audio/stream?${params.join("&")}`;
 }
 
-function buildNeteasePlayPageUrl(track) {
+function buildNeteaseDirectUrl(track) {
   const song = track && track.song ? track.song : {};
   const params = [];
   const keyword = buildTrackKeyword(track);
@@ -158,7 +158,7 @@ function buildNeteasePlayPageUrl(track) {
     params.push(`keyword=${encodeURIComponent(keyword)}`);
   }
 
-  return `${API_BASE_URL}/web/netease-player.html?${params.join("&")}`;
+  return `${API_BASE_URL}/api/netease/play?${params.join("&")}`;
 }
 
 function buildAudioResolveParams(track) {
@@ -579,12 +579,12 @@ Page({
       return;
     }
 
-    const playerUrl = buildNeteasePlayPageUrl(track);
+    const playerUrl = buildNeteaseDirectUrl(track);
     this.setData({
       copiedTrackIndex: Number(index)
     });
     trackUserEvent({
-      type: "track_open_netease_h5",
+      type: "track_open_netease_direct",
       trackRank: track.rank,
       title: track.song && track.song.title,
       artist: track.song && track.song.artist,
