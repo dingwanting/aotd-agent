@@ -28,8 +28,13 @@ interface WxSessionResponse {
 }
 
 const WX_LOGIN_URL = "https://api.weixin.qq.com/sns/jscode2session";
+const SELF_SIGNED_CERT_ERROR = "DEPTH_ZERO_SELF_SIGNED_CERT";
 
-function requestJson(url: URL, timeoutMs: number): Promise<{ statusCode: number; body: string }> {
+function requestJson(
+  url: URL,
+  timeoutMs: number,
+  allowInsecureTls = false,
+): Promise<{ statusCode: number; body: string }> {
   return new Promise((resolve, reject) => {
     const req = request(
       {
@@ -40,6 +45,7 @@ function requestJson(url: URL, timeoutMs: number): Promise<{ statusCode: number;
         timeout: timeoutMs,
         family: 4,
         lookup,
+        rejectUnauthorized: !allowInsecureTls,
       },
       (res) => {
         const chunks: Buffer[] = [];
@@ -84,20 +90,37 @@ export async function exchangeWxCodeForOpenId(
     js_code: code,
     grant_type: "authorization_code",
   });
+  const requestUrl = new URL(`${WX_LOGIN_URL}?${params.toString()}`);
 
   let response: { statusCode: number; body: string };
   try {
-    response = await requestJson(new URL(`${WX_LOGIN_URL}?${params.toString()}`), timeoutMs);
+    response = await requestJson(requestUrl, timeoutMs);
   } catch (error) {
     const err = error as NodeJS.ErrnoException;
-    return {
-      ok: false,
-      failure: {
-        reason: "network",
-        errmsg: error instanceof Error ? error.message : String(error),
-        errorCode: err && typeof err.code === "string" ? err.code : undefined,
-      },
-    };
+    if (err && err.code === SELF_SIGNED_CERT_ERROR) {
+      try {
+        response = await requestJson(requestUrl, timeoutMs, true);
+      } catch (retryError) {
+        const retryErr = retryError as NodeJS.ErrnoException;
+        return {
+          ok: false,
+          failure: {
+            reason: "network",
+            errmsg: retryError instanceof Error ? retryError.message : String(retryError),
+            errorCode: retryErr && typeof retryErr.code === "string" ? retryErr.code : undefined,
+          },
+        };
+      }
+    } else {
+      return {
+        ok: false,
+        failure: {
+          reason: "network",
+          errmsg: error instanceof Error ? error.message : String(error),
+          errorCode: err && typeof err.code === "string" ? err.code : undefined,
+        },
+      };
+    }
   }
 
   if (response.statusCode < 200 || response.statusCode >= 300) {
