@@ -1,5 +1,5 @@
 const { CLOUD_ENV_ID, USE_CLOUD_CONTAINER } = require("./utils/config");
-const { STORAGE_KEYS, getStorage, setStorage } = require("./utils/storage");
+const { STORAGE_KEYS, getStorage, setStorage, clearUser } = require("./utils/storage");
 const { requestWxLogin } = require("./utils/api");
 
 App({
@@ -24,10 +24,16 @@ App({
 
   bootstrapUser() {
     const cachedUserId = getStorage(STORAGE_KEYS.userId, "");
-    if (cachedUserId) {
-      // 已有 userId 静默刷新一下 lastSeen
+    const cachedIsAnon = getStorage(STORAGE_KEYS.isAnonymous, true);
+    if (cachedUserId && !cachedIsAnon) {
+      // 已经拿到真实 openid（userId 形如 wx-xxx），直接复用
       this.refreshProfile();
       return;
+    }
+
+    // 缓存是 anonymous（或没有缓存）—— 清掉重来，确保 secret 配好之后能升级为 wx-xxx
+    if (cachedUserId) {
+      clearUser();
     }
 
     if (typeof wx.login !== "function") {
@@ -38,12 +44,14 @@ App({
       success: (loginRes) => {
         const code = loginRes && loginRes.code;
         if (!code) {
+          console.warn("[aotd] wx.login returned empty code");
           return;
         }
         requestWxLogin(code, "")
           .then((payload) => {
             const profile = payload && payload.profile ? payload.profile : null;
             if (!profile) {
+              console.warn("[aotd] wx-login response without profile");
               return;
             }
             setStorage(STORAGE_KEYS.userId, profile.userId || "");
