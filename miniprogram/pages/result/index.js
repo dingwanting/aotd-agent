@@ -59,11 +59,6 @@ function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function buildPosterProfileLabel(nickname) {
-  const safeName = nickname && nickname !== FALLBACK_NICKNAME ? nickname : FALLBACK_NICKNAME;
-  return `${safeName} 的 AOTD`;
-}
-
 function buildPosterShortCopy(result) {
   const shareCard = result && result.shareCard ? result.shareCard : null;
   const tags = shareCard && Array.isArray(shareCard.tags) ? shareCard.tags.filter(Boolean) : [];
@@ -71,9 +66,8 @@ function buildPosterShortCopy(result) {
   const toNeed = tags[1] || "缓一缓";
   const scene = tags[2] || "今晚";
   return {
-    kicker: `${fromState}的时候，先听这 5 首。`,
+    kicker: `${fromState}的时候，今天先听这个。`,
     subline: `想${toNeed}一点，就放在${scene}里听。`,
-    footer: `这 5 首，留给现在的你。`,
   };
 }
 
@@ -802,10 +796,6 @@ Page({
     const sy = (value) => value * scale;
     const title = stripPlaylistPrefix(poster.result.playlist.title);
     const posterCopy = buildPosterShortCopy(poster.result);
-    const profileLabel = buildPosterProfileLabel(poster.nickname);
-    const tags = poster.result.shareCard && Array.isArray(poster.result.shareCard.tags)
-      ? poster.result.shareCard.tags.slice(0, 3)
-      : [];
 
     ctx.clearRect(0, 0, POSTER_WIDTH, POSTER_HEIGHT);
     const bgGradient = ctx.createLinearGradient(0, 0, POSTER_WIDTH, POSTER_HEIGHT);
@@ -824,30 +814,13 @@ Page({
     ctx.fillStyle = "rgba(255,255,255,0.75)";
     ctx.fillRect(sx(78), sy(72), POSTER_WIDTH - sx(156), POSTER_HEIGHT - sy(144));
 
-    ctx.fillStyle = "rgba(255,255,255,0.92)";
-    ctx.fillRect(sx(120), sy(112), sx(240), sy(76));
-
-    if (poster.avatarImage) {
-      ctx.save();
-      ctx.beginPath();
-      ctx.arc(sx(156), sy(150), sx(24), 0, Math.PI * 2);
-      ctx.clip();
-      ctx.drawImage(poster.avatarImage, sx(132), sy(126), sx(48), sy(48));
-      ctx.restore();
-    } else {
-      ctx.fillStyle = "#f3d6e1";
-      ctx.beginPath();
-      ctx.arc(sx(156), sy(150), sx(24), 0, Math.PI * 2);
-      ctx.fill();
-    }
-
-    ctx.fillStyle = "#8f6071";
+    ctx.fillStyle = "#b86b88";
     ctx.font = `${Math.round(sx(24))}px sans-serif`;
-    ctx.fillText(profileLabel, sx(194), sy(158));
+    ctx.fillText("AOTD", sx(120), sy(150));
 
     ctx.fillStyle = "#5c3f4b";
     ctx.font = `${Math.round(sx(72))}px sans-serif`;
-    const nextY = wrapPosterText(ctx, title, sx(120), sy(258), POSTER_WIDTH - sx(240), sy(84), 2);
+    const nextY = wrapPosterText(ctx, title, sx(120), sy(246), POSTER_WIDTH - sx(240), sy(84), 2);
 
     ctx.fillStyle = "rgba(92,63,75,0.72)";
     ctx.font = `${Math.round(sx(28))}px sans-serif`;
@@ -920,20 +893,6 @@ Page({
     ctx.stroke();
 
     ctx.fillStyle = "#5c3f4b";
-    ctx.font = `${Math.round(sx(24))}px sans-serif`;
-    ctx.fillText(poster.nickname || FALLBACK_NICKNAME, sx(240), sy(810));
-
-    ctx.fillStyle = "#8f6071";
-    ctx.font = `${Math.round(sx(24))}px sans-serif`;
-    tags.forEach((tag, index) => {
-      const tagX = sx(120 + index * 168);
-      ctx.fillStyle = "rgba(255,255,255,0.78)";
-      ctx.fillRect(tagX, sy(1080), sx(140), sy(48));
-      ctx.fillStyle = "#8f6071";
-      ctx.fillText(tag, tagX + sx(20), sy(1112));
-    });
-
-    ctx.fillStyle = "#5c3f4b";
     ctx.font = `${Math.round(sx(30))}px sans-serif`;
     ctx.fillText("Track List", sx(560), sy(690));
     ctx.font = `${Math.round(sx(26))}px sans-serif`;
@@ -956,10 +915,6 @@ Page({
       const artist = track.song && track.song.artist ? track.song.artist : "";
       wrapPosterText(ctx, artist, sx(620), top + sy(28), sx(250), sy(30), 1);
     });
-
-    ctx.fillStyle = "rgba(92,63,75,0.68)";
-    ctx.font = `${Math.round(sx(24))}px sans-serif`;
-    ctx.fillText(posterCopy.footer, sx(120), sy(1440));
   },
 
   async ensurePosterImage() {
