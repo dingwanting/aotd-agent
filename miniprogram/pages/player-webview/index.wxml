@@ -1,0 +1,3 @@
+<view class="player-webview-page">
+  <web-view wx:if="{{src}}" src="{{src}}"></web-view>
+</view>

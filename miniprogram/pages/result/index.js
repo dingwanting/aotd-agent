@@ -140,6 +140,27 @@ function buildAudioStreamUrl(track) {
   return `${API_BASE_URL}/api/netease/audio/stream?${params.join("&")}`;
 }
 
+function buildNeteasePlayPageUrl(track) {
+  const song = track && track.song ? track.song : {};
+  const params = [];
+  const keyword = buildTrackKeyword(track);
+
+  if (song.originalId) {
+    params.push(`originalId=${encodeURIComponent(String(song.originalId))}`);
+  }
+  if (song.title) {
+    params.push(`title=${encodeURIComponent(song.title)}`);
+  }
+  if (song.artist) {
+    params.push(`artist=${encodeURIComponent(song.artist)}`);
+  }
+  if (keyword) {
+    params.push(`keyword=${encodeURIComponent(keyword)}`);
+  }
+
+  return `${API_BASE_URL}/web/netease-player.html?${params.join("&")}`;
+}
+
 function buildAudioResolveParams(track) {
   const song = track.song || {};
   return {
@@ -550,7 +571,7 @@ Page({
     });
   },
 
-  handleCopyTrack(event) {
+  handleOpenNeteaseTrack(event) {
     const { index } = event.currentTarget.dataset;
     const result = this.data.result;
     const track = result && result.playlist && result.playlist.tracks ? result.playlist.tracks[index] : null;
@@ -558,25 +579,19 @@ Page({
       return;
     }
 
-    const keyword = buildTrackKeyword(track);
-    wx.setClipboardData({
-      data: keyword,
-      success: () => {
-        this.setData({
-          copiedTrackIndex: Number(index)
-        });
-        trackUserEvent({
-          type: "track_copy",
-          trackRank: track.rank,
-          title: track.song && track.song.title,
-          artist: track.song && track.song.artist
-        }).catch(() => {});
-        wx.showModal({
-          title: "已复制到剪贴板",
-          content: `已复制“${keyword}”。打开网易云音乐后直接粘贴搜索，通常可以较快命中这首歌。`,
-          showCancel: false
-        });
-      }
+    const playerUrl = buildNeteasePlayPageUrl(track);
+    this.setData({
+      copiedTrackIndex: Number(index)
+    });
+    trackUserEvent({
+      type: "track_open_netease_h5",
+      trackRank: track.rank,
+      title: track.song && track.song.title,
+      artist: track.song && track.song.artist,
+      originalId: track.song && track.song.originalId ? String(track.song.originalId) : ""
+    }).catch(() => {});
+    wx.navigateTo({
+      url: `/pages/player-webview/index?src=${encodeURIComponent(playerUrl)}&title=${encodeURIComponent(track.song && track.song.title ? track.song.title : "网易云播放页")}`
     });
   },
 
@@ -1160,7 +1175,7 @@ Page({
       });
       wx.showModal({
         title: "当前无法播放",
-        content: `这首歌暂时没有稳定拿到可播放音频流${formatAudioErrorCode(error)}，你可以先复制歌名到网易云搜索。`,
+        content: `这首歌暂时没有稳定拿到可播放音频流${formatAudioErrorCode(error)}，你可以点“去网易云听”继续打开播放页。`,
         showCancel: false
       });
     });
@@ -1341,7 +1356,7 @@ Page({
           });
           wx.showModal({
             title: "当前无法播放",
-            content: "试听启动超时，已自动中断本次缓冲。你可以重试或复制歌名到网易云搜索。",
+            content: "试听启动超时，已自动中断本次缓冲。你可以重试，或点“去网易云听”继续打开播放页。",
             showCancel: false
           });
         }, AUDIO_PLAY_START_TIMEOUT_MS);
@@ -1359,7 +1374,7 @@ Page({
           title: "当前无法播放",
           content: error && error.message
             ? `${error.message}${formatAudioErrorCode(error)}`
-            : "这首歌暂时没有拿到可播放音频流，你可以先复制歌名到网易云搜索。",
+            : "这首歌暂时没有拿到可播放音频流，你可以点“去网易云听”继续打开播放页。",
           showCancel: false
         });
       });

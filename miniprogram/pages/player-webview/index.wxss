@@ -1,0 +1,4 @@
+.player-webview-page {
+  min-height: 100vh;
+  background: #fff7fb;
+}

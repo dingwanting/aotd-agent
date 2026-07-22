@@ -73,8 +73,8 @@
                   : '15秒试听'
             }}
           </view>
-          <view class="copy-button {{copiedTrackIndex === index ? 'copy-button--active' : ''}} {{supportsInlineAudio ? '' : 'copy-button--single'}}" data-index="{{index}}" bindtap="handleCopyTrack">
-            {{copiedTrackIndex === index ? '已复制，去网易云粘贴' : '复制到网易云搜索'}}
+          <view class="copy-button {{copiedTrackIndex === index ? 'copy-button--active' : ''}} {{supportsInlineAudio ? '' : 'copy-button--single'}}" data-index="{{index}}" bindtap="handleOpenNeteaseTrack">
+            {{copiedTrackIndex === index ? '已打开播放页' : '去网易云听'}}
           </view>
         </view>
       </view>

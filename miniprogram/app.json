@@ -2,7 +2,8 @@
   "pages": [
     "pages/landing/index",
     "pages/question/index",
-    "pages/result/index"
+    "pages/result/index",
+    "pages/player-webview/index"
   ],
   "window": {
     "navigationBarTitleText": "AOTD",
