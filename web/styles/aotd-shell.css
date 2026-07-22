@@ -377,9 +377,23 @@ footer {
 .track strong {
   display: block;
 }
+.track-title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  justify-content: space-between;
+  min-width: 0;
+}
+.track-title-row strong {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .track-moodtag {
-  display: inline-block;
-  margin-top: 8px;
+  flex: none;
+  align-self: center;
   padding: 3px 12px;
   border-radius: 999px;
   background: linear-gradient(135deg, rgba(229, 139, 168, 0.08) 0%, rgba(206, 116, 147, 0.05) 100%);
@@ -388,6 +402,7 @@ footer {
   font-size: 11px;
   letter-spacing: 0.04em;
   line-height: 1.5;
+  white-space: nowrap;
 }
 .cover-card {
   border-radius: 28px;

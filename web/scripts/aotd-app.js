@@ -520,9 +520,11 @@ function renderResultPage(result) {
             <div class="track-main">
               <span class="track-rank">#${track.rank}</span>
               <div class="track-copy">
-                <strong>${escapeHtml(track.song.title)}</strong>
+                <div class="track-title-row">
+                  <strong>${escapeHtml(track.song.title)}</strong>
+                  ${moodTag}
+                </div>
                 <span>${escapeHtml(track.song.artist)}</span>
-                ${moodTag}
               </div>
             </div>
             <div class="track-actions">

@@ -113,10 +113,23 @@
 
 .track-copy { flex: 1; }
 
+.track-title-row {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+  justify-content: space-between;
+  min-width: 0;
+}
+
 .track-title {
   font-size: 32rpx;
   font-weight: 600;
   color: #513d47;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .track-artist {
@@ -136,9 +149,9 @@
 }
 
 .track-moodtag {
-  display: inline-block;
-  margin-top: 14rpx;
-  padding: 5rpx 18rpx;
+  flex: none;
+  align-self: center;
+  padding: 4rpx 18rpx;
   border-radius: 999rpx;
   background: linear-gradient(135deg, rgba(229, 139, 168, 0.08) 0%, rgba(206, 116, 147, 0.05) 100%);
   color: #8f4d68;
@@ -146,6 +159,7 @@
   letter-spacing: 0.04em;
   line-height: 1.5;
   border: 1rpx solid rgba(229, 139, 168, 0.22);
+  white-space: nowrap;
 }
 
 .copy-button {

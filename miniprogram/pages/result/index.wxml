@@ -43,9 +43,11 @@
         <view class="track-main">
           <view class="track-rank">#{{item.rank}}</view>
           <view class="track-copy">
-            <view class="track-title">{{item.song.title}}</view>
+            <view class="track-title-row">
+              <view class="track-title">{{item.song.title}}</view>
+              <view wx:if="{{item.moodTag}}" class="track-moodtag">{{item.moodTag}}</view>
+            </view>
             <view class="track-artist muted">{{item.song.artist}}</view>
-            <view wx:if="{{item.moodTag}}" class="track-moodtag">{{item.moodTag}}</view>
             <view class="track-keyword">搜索词：{{item.song.cliKeyword || item.song.title + ' ' + item.song.artist}}</view>
           </view>
         </view>
