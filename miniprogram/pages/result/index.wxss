@@ -271,3 +271,55 @@
   opacity: 0;
   pointer-events: none;
 }
+
+.poster-preview-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  background: rgba(27, 20, 24, 0.56);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 24rpx;
+  box-sizing: border-box;
+}
+
+.poster-preview-sheet {
+  width: 100%;
+  max-height: 92vh;
+  overflow: hidden;
+  padding: 24rpx;
+  box-sizing: border-box;
+  border-radius: 32rpx;
+}
+
+.poster-preview-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 18rpx;
+}
+
+.poster-preview-title {
+  font-size: 32rpx;
+  font-weight: 600;
+  color: #4b3740;
+}
+
+.poster-preview-close {
+  font-size: 24rpx;
+  color: rgba(75, 55, 64, 0.7);
+}
+
+.poster-preview-image {
+  width: 100%;
+  border-radius: 24rpx;
+  background: rgba(255, 247, 250, 1);
+}
+
+.poster-preview-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 16rpx;
+  margin-top: 22rpx;
+}

@@ -386,7 +386,8 @@ Page({
     showNicknameAuth: false,
     posterGenerating: false,
     posterReady: false,
-    posterImagePath: ""
+    posterImagePath: "",
+    showPosterPreview: false
   },
 
   onShow() {
@@ -455,7 +456,8 @@ Page({
         loadingTrackIndex: -1,
         showNicknameAuth: isFallbackNickname(nickname),
         posterReady: false,
-        posterImagePath: ""
+        posterImagePath: "",
+        showPosterPreview: false
       });
       trackUserEvent({ type: "result_view_cached", answers }).catch(() => {});
       this.autoPlayTopTrack(cached);
@@ -481,7 +483,8 @@ Page({
         loadingTrackIndex: -1,
         showNicknameAuth: isFallbackNickname(nickname),
         posterReady: false,
-        posterImagePath: ""
+        posterImagePath: "",
+        showPosterPreview: false
       });
       trackUserEvent({ type: "result_view", answers }).catch(() => {});
       this.autoPlayTopTrack(result);
@@ -496,6 +499,8 @@ Page({
   handleRetry() {
     this.loadResult();
   },
+
+  noop() {},
 
   logAudioError(detail) {
     const nextDetail = Object.assign(
@@ -761,6 +766,18 @@ Page({
     throw lastError || new Error("报告图导出失败");
   },
 
+  async loadCanvasImage(canvas, src) {
+    if (!canvas || !src) {
+      return null;
+    }
+    return new Promise((resolve, reject) => {
+      const image = canvas.createImage();
+      image.onload = () => resolve(image);
+      image.onerror = (error) => reject(error || new Error("图片加载失败"));
+      image.src = src;
+    });
+  },
+
   drawPoster(ctx, poster) {
     const scale = POSTER_SCALE;
     const sx = (value) => value * scale;
@@ -834,12 +851,12 @@ Page({
     ctx.arc(recordCenterX, recordCenterY, sx(88), 0, Math.PI * 2);
     ctx.fill();
 
-    if (poster.avatarPath) {
+    if (poster.avatarImage) {
       ctx.save();
       ctx.beginPath();
       ctx.arc(recordCenterX, recordCenterY, sx(52), 0, Math.PI * 2);
       ctx.clip();
-      ctx.drawImage(poster.avatarPath, recordCenterX - sx(52), recordCenterY - sx(52), sx(104), sx(104));
+      ctx.drawImage(poster.avatarImage, recordCenterX - sx(52), recordCenterY - sx(52), sx(104), sx(104));
       ctx.restore();
     } else {
       ctx.fillStyle = "#ffffff";
@@ -926,13 +943,22 @@ Page({
         mask: true,
       });
 
-      const avatarPath = await this.resolvePosterAvatarPath().catch(() => "");
       const posterCanvas = await this.ensurePosterCanvas();
       const ctx = posterCanvas.ctx;
+      const avatarPath = await this.resolvePosterAvatarPath().catch(() => "");
+      const avatarImage = avatarPath
+        ? await this.loadCanvasImage(posterCanvas.canvas, avatarPath).catch((error) => {
+            console.warn("[aotd] poster avatar load failed", {
+              errMsg: error && error.errMsg ? error.errMsg : "",
+              message: error && error.message ? error.message : "",
+            });
+            return null;
+          })
+        : null;
       this.drawPoster(ctx, {
         result,
         nickname: this.data.profileNickname,
-        avatarPath,
+        avatarImage,
       });
       const imagePath = await this.canvasToPosterFilePath(3);
       this.posterCacheKey = posterCacheKey;
@@ -966,9 +992,37 @@ Page({
     return this.posterPromise;
   },
 
-  async handleSavePoster() {
+  async handleGeneratePoster() {
     try {
       const posterPath = await this.ensurePosterImage();
+      if (!posterPath) {
+        throw new Error("报告图生成失败");
+      }
+      this.setData({
+        showPosterPreview: true,
+      });
+      trackUserEvent({
+        type: "poster_preview_opened",
+      }).catch(() => {});
+    } catch (error) {
+      const message = error && error.errMsg ? error.errMsg : error && error.message ? error.message : "";
+      wx.showModal({
+        title: "报告图生成失败",
+        content: message || "请重试一次，如果仍失败我再继续修这一条链路。",
+        showCancel: false,
+      });
+    }
+  },
+
+  handleClosePosterPreview() {
+    this.setData({
+      showPosterPreview: false,
+    });
+  },
+
+  async handleSavePoster() {
+    try {
+      const posterPath = this.data.posterImagePath || (await this.ensurePosterImage());
       if (!posterPath) {
         throw new Error("报告图生成失败");
       }
@@ -998,7 +1052,7 @@ Page({
         return;
       }
       wx.showModal({
-        title: "报告图生成失败",
+        title: "保存报告失败",
         content: message || "请重试一次，如果仍失败我再继续修这一条链路。",
         showCancel: false,
       });

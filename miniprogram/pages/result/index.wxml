@@ -81,8 +81,22 @@
     </view>
 
     <view class="actions">
-      <button class="action-primary" loading="{{posterGenerating}}" disabled="{{posterGenerating}}" bindtap="handleSavePoster">保存 AOTD 报告</button>
+      <button class="action-primary" loading="{{posterGenerating}}" disabled="{{posterGenerating}}" bindtap="handleGeneratePoster">生成 AOTD 报告</button>
       <button class="action-secondary" bindtap="handleRestart">重新回答</button>
+    </view>
+
+    <view wx:if="{{showPosterPreview}}" class="poster-preview-mask" catchtouchmove="noop">
+      <view class="poster-preview-sheet card">
+        <view class="poster-preview-head">
+          <view class="poster-preview-title">AOTD 报告</view>
+          <view class="poster-preview-close" bindtap="handleClosePosterPreview">关闭</view>
+        </view>
+        <image wx:if="{{posterImagePath}}" class="poster-preview-image" src="{{posterImagePath}}" mode="widthFix"></image>
+        <view class="poster-preview-actions">
+          <button class="action-primary" bindtap="handleSavePoster">保存到本地</button>
+          <button class="action-secondary" bindtap="handleClosePosterPreview">先不保存</button>
+        </view>
+      </view>
     </view>
 
     <canvas id="aotdPosterCanvas" type="2d" class="poster-canvas"></canvas>
