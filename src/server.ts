@@ -14,6 +14,43 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(__dirname, "..");
 const webRoot = path.join(projectRoot, "web");
 const port = Number(process.env.PORT || 4173);
+const AUDIO_STREAM_FETCH_TIMEOUT_MS = 12000;
+const DEFAULT_AUDIO_PREVIEW_BYTES = 256 * 1024;
+
+// 部署版本指纹：每次代码改动必须 bump，方便从云托管日志确认跑的是哪个版本
+// 同时启动时打 dist 文件 hash + 文件 mtime + git HEAD，可以一眼看出"是否在跑新代码"
+const DEPLOY_VERSION = "aotd-2026-07-22-r3-fullcatalog-weighted-v1";
+
+function shortHash(input: string): string {
+  let hash = 5381;
+  for (let i = 0; i < input.length; i += 1) {
+    hash = ((hash << 5) + hash + input.charCodeAt(i)) >>> 0;
+  }
+  return hash.toString(16).padStart(8, "0");
+}
+
+function readRetrieverFingerprint(): {
+  hash: string;
+  size: number;
+  mtime: string;
+  path: string;
+} | null {
+  try {
+    const retrieverPath = path.join(__dirname, "domain", "aotd", "retriever.js");
+    const content = fsSync.readFileSync(retrieverPath, "utf-8");
+    const stat = fsSync.statSync(retrieverPath);
+    return {
+      hash: shortHash(content),
+      size: stat.size,
+      mtime: stat.mtime.toISOString(),
+      path: retrieverPath,
+    };
+  } catch (error) {
+    return null;
+  }
+}
+
+const retrieverFingerprint = readRetrieverFingerprint();
 
 type HttpRequest = IncomingMessage;
 type HttpResponse = ServerResponse<IncomingMessage>;
@@ -49,6 +86,8 @@ function handleHealth(res: HttpResponse) {
   sendJson(res, 200, {
     ok: true,
     service: "aotd-agent",
+    deployVersion: DEPLOY_VERSION,
+    retriever: retrieverFingerprint,
     port,
     workbookPath,
     workbookExists: fsSync.existsSync(workbookPath),
@@ -94,6 +133,19 @@ function getExcludeSongKeys(value: unknown): string[] {
   return payload.excludeSongKeys.filter((item): item is string => typeof item === "string");
 }
 
+function getRotationSeed(value: unknown): number | string | undefined {
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+
+  const payload = value as Record<string, unknown>;
+  const seed = payload.rotationSeed;
+  if (typeof seed === "number" || typeof seed === "string") {
+    return seed;
+  }
+  return undefined;
+}
+
 async function handleApi(req: HttpRequest, res: HttpResponse) {
   if (req.method !== "POST") {
     sendJson(res, 405, { error: "Method not allowed" });
@@ -120,6 +172,7 @@ async function handleApi(req: HttpRequest, res: HttpResponse) {
     const result = await agent.run(payload, {
       excludeSongIds: getExcludeSongIds(payload),
       excludeSongKeys: getExcludeSongKeys(payload),
+      rotationSeed: getRotationSeed(payload),
     });
     sendJson(res, 200, result);
   } catch (error) {
@@ -186,6 +239,8 @@ async function handleNeteaseAudioStream(req: HttpRequest, requestUrl: URL, res: 
   const artist = requestUrl.searchParams.get("artist") || "";
   const keyword = requestUrl.searchParams.get("keyword") || "";
   const originalId = requestUrl.searchParams.get("originalId") || "";
+  const previewBytesRaw = requestUrl.searchParams.get("previewBytes") || "";
+  const previewBytes = Number.parseInt(previewBytesRaw, 10);
 
   try {
     const resolution = await resolveNeteaseAudio({
@@ -207,10 +262,15 @@ async function handleNeteaseAudioStream(req: HttpRequest, requestUrl: URL, res: 
     };
     if (req.headers.range) {
       upstreamHeaders.range = req.headers.range;
+    } else if (Number.isFinite(previewBytes) && previewBytes > 0) {
+      upstreamHeaders.range = `bytes=0-${previewBytes - 1}`;
+    } else {
+      upstreamHeaders.range = `bytes=0-${DEFAULT_AUDIO_PREVIEW_BYTES - 1}`;
     }
 
     const upstreamResponse = await fetch(resolution.audioUrl, {
       headers: upstreamHeaders,
+      signal: AbortSignal.timeout(AUDIO_STREAM_FETCH_TIMEOUT_MS),
     });
 
     if (!upstreamResponse.ok || !upstreamResponse.body) {
@@ -280,5 +340,7 @@ const server = createServer(async (req, res) => {
 });
 
 server.listen(port, () => {
+  console.log(`[BOOT] deployVersion=${DEPLOY_VERSION}`);
+  console.log(`[BOOT] retriever=${JSON.stringify(retrieverFingerprint)}`);
   console.log(`AOTD web server running at http://localhost:${port}`);
 });

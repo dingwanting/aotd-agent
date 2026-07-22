@@ -2,6 +2,8 @@ const STORAGE_KEYS = {
   answers: "aotd.answers",
   result: "aotd.result",
   questionDeck: "aotd.questionDeck",
+  questionDeckHistory: "aotd.questionDeckHistory",
+  playlistHistory: "aotd.playlistHistory",
 };
 
 function getStorage(key, fallbackValue) {

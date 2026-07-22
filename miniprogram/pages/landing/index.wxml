@@ -1,0 +1,6 @@
+<view class="landing-page">
+  <view class="hero-frame">
+    <image class="hero-image" src="/assets/landing/hero-entry-final.jpg" mode="widthFix"></image>
+    <button class="start-hit-area" bindtap="handleStart">开始陪伴</button>
+  </view>
+</view>

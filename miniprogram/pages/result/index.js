@@ -1,6 +1,19 @@
 const { STORAGE_KEYS, getStorage, clearAnswers, clearQuestionDeck, clearResult } = require("../../utils/storage");
 const { requestRecommendation, loadResultIfMatched } = require("../../utils/api");
-const { API_BASE_URL } = require("../../utils/config");
+const {
+  API_BASE_URL,
+  USE_CLOUD_CONTAINER,
+  CLOUD_ENV_ID,
+  CLOUD_SERVICE_NAME,
+  CLOUD_SERVICE_FALLBACKS,
+} = require("../../utils/config");
+
+const SUPPORT_INLINE_AUDIO = true;
+const AUDIO_FETCH_MAX_ATTEMPTS = 2;
+const AUDIO_CACHE_MIN_BYTES = 1024;
+const AUDIO_PREVIEW_BYTES = 256 * 1024;
+const AUDIO_FETCH_TIMEOUT_MS = 15000;
+const AUDIO_PLAY_START_TIMEOUT_MS = 10000;
 
 function getAnswers() {
   return getStorage(STORAGE_KEYS.answers, {});
@@ -15,18 +28,6 @@ function buildTrackKeyword(track) {
     return cliKeyword;
   }
   return [title, artist].filter(Boolean).join(" ");
-}
-
-function buildPlaylistCopyText(result) {
-  const tracks = result && result.playlist && result.playlist.tracks ? result.playlist.tracks : [];
-  const title = result && result.playlist ? result.playlist.title : "今晚歌单";
-  const lines = [`${title}`, ""];
-  tracks.forEach((track, index) => {
-    const song = track.song || {};
-    lines.push(`${index + 1}. ${song.title || ""} - ${song.artist || ""}`);
-  });
-  lines.push("", "复制后可直接到网易云音乐粘贴搜索。");
-  return lines.join("\n");
 }
 
 function buildAudioStreamUrl(track) {
@@ -51,25 +52,279 @@ function buildAudioStreamUrl(track) {
   return `${API_BASE_URL}/api/netease/audio/stream?${params.join("&")}`;
 }
 
+function buildAudioResolveParams(track) {
+  const song = track.song || {};
+  return {
+    originalId: song.originalId ? String(song.originalId) : "",
+    title: song.title || "",
+    artist: song.artist || "",
+    keyword: buildTrackKeyword(track),
+    previewBytes: String(AUDIO_PREVIEW_BYTES),
+  };
+}
+
+function buildTempAudioFilePath(track) {
+  const song = track.song || {};
+  const rawName = song.originalId || `${song.title || "aotd"}-${song.artist || "preview"}`;
+  const safeName = String(rawName)
+    .replace(/[^\w.-]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+  return `${wx.env.USER_DATA_PATH}/${safeName || "aotd-preview"}.mp3`;
+}
+
+function buildTrackSignature(track) {
+  const song = track && track.song ? track.song : {};
+  return [song.originalId || "", song.title || "", song.artist || ""].join("::");
+}
+
+function readErrorCode(detail) {
+  if (!detail) {
+    return "";
+  }
+  if (detail.code || detail.errorCode || detail.statusCode) {
+    return String(detail.code || detail.errorCode || detail.statusCode);
+  }
+  return "";
+}
+
+function buildAudioError(detail) {
+  const fallbackMessage = "当前无法连接试听服务。";
+  const message = detail && detail.message ? detail.message : fallbackMessage;
+  const error = new Error(message);
+  error.code = readErrorCode(detail);
+  error.detail = detail || {};
+  return error;
+}
+
+function formatAudioErrorCode(error) {
+  if (!error || !error.code) {
+    return "";
+  }
+  return `（错误码：${error.code}）`;
+}
+
+function readLocalAudioFile(filePath) {
+  const fs = wx.getFileSystemManager();
+  return new Promise((resolve) => {
+    fs.getFileInfo({
+      filePath,
+      success: (info) => {
+        resolve(Boolean(info && info.size >= AUDIO_CACHE_MIN_BYTES));
+      },
+      fail: () => resolve(false)
+    });
+  });
+}
+
+function resolveAudioViaCloudContainer(track) {
+  const data = buildAudioResolveParams(track);
+  const serviceNames = Array.from(
+    new Set([CLOUD_SERVICE_NAME].concat(CLOUD_SERVICE_FALLBACKS || []).filter(Boolean))
+  );
+
+  return new Promise((resolve, reject) => {
+    const tryRequest = (index) => {
+      const serviceName = serviceNames[index];
+      if (!serviceName) {
+        reject(new Error("当前无法连接试听服务，请检查云托管服务配置。"));
+        return;
+      }
+
+      wx.cloud.callContainer({
+        config: {
+          env: CLOUD_ENV_ID
+        },
+        path: "/api/netease/audio/resolve",
+        method: "GET",
+        header: {
+          "X-WX-SERVICE": serviceName
+        },
+        data,
+        success: (response) => {
+          if (response.statusCode >= 200 && response.statusCode < 300 && response.data && response.data.playable && response.data.audioUrl) {
+            resolve(response.data.audioUrl);
+            return;
+          }
+
+          if (index < serviceNames.length - 1) {
+            tryRequest(index + 1);
+            return;
+          }
+
+          const message =
+            response.data && (response.data.message || response.data.error)
+              ? response.data.message || response.data.error
+              : "当前没有拿到可播放音频流。";
+          reject(buildAudioError({
+            stage: "resolve",
+            statusCode: response.statusCode,
+            message,
+            responseData: response.data
+          }));
+        },
+        fail: (error) => {
+          if (index < serviceNames.length - 1) {
+            tryRequest(index + 1);
+            return;
+          }
+
+          reject(buildAudioError({
+            stage: "resolve",
+            code: error && error.errCode ? error.errCode : "",
+            message: error && error.errMsg ? error.errMsg : "当前无法连接试听服务。",
+            rawError: error
+          }));
+        }
+      });
+    };
+
+    tryRequest(0);
+  });
+}
+
+function fetchAudioTempFileViaCloudContainer(track) {
+  const data = buildAudioResolveParams(track);
+  const filePath = buildTempAudioFilePath(track);
+  const fs = wx.getFileSystemManager();
+  const serviceNames = Array.from(
+    new Set([CLOUD_SERVICE_NAME].concat(CLOUD_SERVICE_FALLBACKS || []).filter(Boolean))
+  );
+
+  return new Promise((resolve, reject) => {
+    const tryRequest = (index) => {
+      const serviceName = serviceNames[index];
+      if (!serviceName) {
+        reject(new Error("当前无法连接试听服务，请检查云托管服务配置。"));
+        return;
+      }
+
+      wx.cloud.callContainer({
+        config: {
+          env: CLOUD_ENV_ID
+        },
+        path: "/api/netease/audio/stream",
+        method: "GET",
+        header: {
+          "X-WX-SERVICE": serviceName
+        },
+        data,
+        responseType: "arraybuffer",
+        success: (response) => {
+          const arrayBuffer = response && response.data;
+          if (response.statusCode >= 200 && response.statusCode < 300 && arrayBuffer && arrayBuffer.byteLength) {
+            fs.writeFile({
+              filePath,
+              data: arrayBuffer,
+              encoding: "binary",
+              success: () => resolve(filePath),
+              fail: (error) => reject(buildAudioError({
+                stage: "write",
+                code: error && error.errCode ? error.errCode : "",
+                message: error && error.errMsg ? error.errMsg : "试听文件写入失败。",
+                rawError: error
+              }))
+            });
+            return;
+          }
+
+          if (index < serviceNames.length - 1) {
+            tryRequest(index + 1);
+            return;
+          }
+
+          // 如果流式拉取失败，再退回到直链播放方案，尽量保住可用率。
+          resolveAudioViaCloudContainer(track)
+            .then(resolve)
+            .catch((error) => reject(error));
+        },
+        fail: (error) => {
+          if (index < serviceNames.length - 1) {
+            tryRequest(index + 1);
+            return;
+          }
+
+          resolveAudioViaCloudContainer(track)
+            .then(resolve)
+            .catch(() => reject(buildAudioError({
+              stage: "stream",
+              code: error && error.errCode ? error.errCode : "",
+              message: error && error.errMsg ? error.errMsg : "当前无法连接试听服务。",
+              rawError: error
+            })));
+        }
+      });
+    };
+
+    tryRequest(0);
+  });
+}
+
+function withTimeout(task, timeoutMs, detail) {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      reject(buildAudioError(Object.assign({
+        code: "AUDIO_TIMEOUT",
+        message: "试听加载超时，请稍后重试。"
+      }, detail || {})));
+    }, timeoutMs);
+
+    Promise.resolve(task)
+      .then((value) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        clearTimeout(timer);
+        resolve(value);
+      })
+      .catch((error) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        clearTimeout(timer);
+        reject(error);
+      });
+  });
+}
+
 Page({
   data: {
     loading: true,
     errorMessage: "",
     result: null,
     copiedTrackIndex: -1,
+    supportsInlineAudio: SUPPORT_INLINE_AUDIO,
     playingTrackIndex: -1,
-    loadingTrackIndex: -1
+    loadingTrackIndex: -1,
+    audioRetryCount: 0
   },
 
   onShow() {
+    this.audioFilePromiseCache = this.audioFilePromiseCache || {};
+    this.audioErrorLogs = this.audioErrorLogs || [];
     this.loadResult();
   },
 
   onUnload() {
+    if (this.autoPlayTimer) {
+      clearTimeout(this.autoPlayTimer);
+      this.autoPlayTimer = null;
+    }
     this.destroyAudio();
   },
 
   onHide() {
+    if (this.autoPlayTimer) {
+      clearTimeout(this.autoPlayTimer);
+      this.autoPlayTimer = null;
+    }
     if (this.audioContext) {
       this.audioContext.stop();
       this.setData({
@@ -98,6 +353,7 @@ Page({
         playingTrackIndex: -1,
         loadingTrackIndex: -1
       });
+      this.autoPlayTopTrack(cached);
       return;
     }
 
@@ -116,6 +372,7 @@ Page({
         playingTrackIndex: -1,
         loadingTrackIndex: -1
       });
+      this.autoPlayTopTrack(result);
     } catch (error) {
       this.setData({
         loading: false,
@@ -128,13 +385,33 @@ Page({
     this.loadResult();
   },
 
+  logAudioError(detail) {
+    const nextDetail = Object.assign(
+      {
+        time: new Date().toISOString()
+      },
+      detail || {}
+    );
+    this.audioErrorLogs = this.audioErrorLogs || [];
+    this.audioErrorLogs.push(nextDetail);
+    if (this.audioErrorLogs.length > 20) {
+      this.audioErrorLogs = this.audioErrorLogs.slice(-20);
+    }
+    console.error("AOTD audio error", nextDetail);
+  },
+
   handleRestart() {
+    if (this.autoPlayTimer) {
+      clearTimeout(this.autoPlayTimer);
+      this.autoPlayTimer = null;
+    }
     this.destroyAudio();
+    this.lastAutoPlaySignature = "";
     clearAnswers();
     clearQuestionDeck();
     clearResult();
     wx.redirectTo({
-      url: "/pages/question/index?step=consumptionSource"
+      url: "/pages/landing/index"
     });
   },
 
@@ -162,22 +439,33 @@ Page({
     });
   },
 
-  handleCopyPlaylist() {
-    const result = this.data.result;
-    if (!result || !result.playlist || !result.playlist.tracks || !result.playlist.tracks.length) {
+  autoPlayTopTrack(result) {
+    const tracks = result && result.playlist && result.playlist.tracks ? result.playlist.tracks : [];
+    if (!tracks.length) {
       return;
     }
 
-    wx.setClipboardData({
-      data: buildPlaylistCopyText(result),
-      success: () => {
-        wx.showModal({
-          title: "整单已复制",
-          content: "已复制今晚歌单。你可以直接粘贴到网易云音乐、聊天或备忘录里继续使用。",
-          showCancel: false
-        });
-      }
-    });
+    const topTrack = tracks[0];
+    const song = topTrack.song || {};
+    const signature = `${song.originalId || ""}-${song.title || ""}-${song.artist || ""}`;
+    if (this.lastAutoPlaySignature === signature) {
+      return;
+    }
+
+    this.lastAutoPlaySignature = signature;
+    if (this.autoPlayTimer) {
+      clearTimeout(this.autoPlayTimer);
+    }
+    this.autoPlayTimer = setTimeout(() => {
+      this.autoPlayTimer = null;
+      this.handlePlayTrack({
+        currentTarget: {
+          dataset: {
+            index: 0
+          }
+        }
+      });
+    }, 180);
   },
 
   ensureAudioContext() {
@@ -190,12 +478,20 @@ Page({
     audioContext.obeyMuteSwitch = false;
 
     audioContext.onCanplay(() => {
+      if (this.playStartWatchdogTimer) {
+        clearTimeout(this.playStartWatchdogTimer);
+        this.playStartWatchdogTimer = null;
+      }
       this.setData({
         loadingTrackIndex: -1
       });
     });
 
     audioContext.onPlay(() => {
+      if (this.playStartWatchdogTimer) {
+        clearTimeout(this.playStartWatchdogTimer);
+        this.playStartWatchdogTimer = null;
+      }
       this.setData({
         playingTrackIndex: this.pendingTrackIndex,
         loadingTrackIndex: -1
@@ -203,6 +499,10 @@ Page({
     });
 
     audioContext.onStop(() => {
+      if (this.playStartWatchdogTimer) {
+        clearTimeout(this.playStartWatchdogTimer);
+        this.playStartWatchdogTimer = null;
+      }
       this.setData({
         playingTrackIndex: -1,
         loadingTrackIndex: -1
@@ -210,20 +510,45 @@ Page({
     });
 
     audioContext.onEnded(() => {
+      if (this.playStartWatchdogTimer) {
+        clearTimeout(this.playStartWatchdogTimer);
+        this.playStartWatchdogTimer = null;
+      }
       this.setData({
         playingTrackIndex: -1,
         loadingTrackIndex: -1
       });
     });
 
-    audioContext.onError(() => {
+    audioContext.onError((error) => {
+      const filePath = this.currentAudioFilePath;
+      const song = this.pendingTrack && this.pendingTrack.song ? this.pendingTrack.song : {};
+      if (this.playStartWatchdogTimer) {
+        clearTimeout(this.playStartWatchdogTimer);
+        this.playStartWatchdogTimer = null;
+      }
+      this.logAudioError({
+        stage: "playback",
+        code: error && error.errCode ? error.errCode : "",
+        message: error && error.errMsg ? error.errMsg : "InnerAudioContext 播放失败",
+        trackTitle: song.title || "",
+        trackArtist: song.artist || "",
+        trackIndex: this.pendingTrackIndex
+      });
+      if (filePath) {
+        wx.getFileSystemManager().unlink({
+          filePath,
+          fail: () => {}
+        });
+        this.currentAudioFilePath = "";
+      }
       this.setData({
         playingTrackIndex: -1,
         loadingTrackIndex: -1
       });
       wx.showModal({
         title: "当前无法播放",
-        content: "这首歌暂时没有拿到可播放音频流，你可以先复制到网易云继续听。",
+        content: `这首歌暂时没有稳定拿到可播放音频流${formatAudioErrorCode(error)}，你可以先复制歌名到网易云搜索。`,
         showCancel: false
       });
     });
@@ -233,11 +558,103 @@ Page({
   },
 
   destroyAudio() {
+    if (this.playStartWatchdogTimer) {
+      clearTimeout(this.playStartWatchdogTimer);
+      this.playStartWatchdogTimer = null;
+    }
     if (this.audioContext) {
       this.audioContext.destroy();
       this.audioContext = null;
       this.pendingTrackIndex = -1;
+      this.pendingTrack = null;
     }
+
+    if (this.currentAudioFilePath) {
+      wx.getFileSystemManager().unlink({
+        filePath: this.currentAudioFilePath,
+        fail: () => {}
+      });
+      this.currentAudioFilePath = "";
+    }
+  },
+
+  async getCachedAudioFile(track) {
+    const filePath = buildTempAudioFilePath(track);
+    const exists = await readLocalAudioFile(filePath);
+    if (exists) {
+      return filePath;
+    }
+    return "";
+  },
+
+  async resolvePlayableAudio(track) {
+    const trackSignature = buildTrackSignature(track);
+    const cachedFilePath = await this.getCachedAudioFile(track);
+    if (cachedFilePath) {
+      return {
+        audioUrl: cachedFilePath,
+        fromCache: true
+      };
+    }
+
+    if (this.audioFilePromiseCache && this.audioFilePromiseCache[trackSignature]) {
+      return this.audioFilePromiseCache[trackSignature];
+    }
+
+    const fetchPromise = Promise.resolve()
+      .then(() => {
+        if (USE_CLOUD_CONTAINER) {
+          return withTimeout(
+            fetchAudioTempFileViaCloudContainer(track),
+            AUDIO_FETCH_TIMEOUT_MS,
+            { stage: "stream_timeout" }
+          );
+        }
+        return buildAudioStreamUrl(track);
+      })
+      .then((audioUrl) => ({
+        audioUrl,
+        fromCache: false
+      }))
+      .finally(() => {
+        if (this.audioFilePromiseCache) {
+          delete this.audioFilePromiseCache[trackSignature];
+        }
+      });
+
+    this.audioFilePromiseCache = this.audioFilePromiseCache || {};
+    this.audioFilePromiseCache[trackSignature] = fetchPromise;
+    return fetchPromise;
+  },
+
+  async fetchPlayableAudioWithRetry(track) {
+    let attempt = 0;
+    let lastError = null;
+
+    while (attempt < AUDIO_FETCH_MAX_ATTEMPTS) {
+      attempt += 1;
+      try {
+        const result = await this.resolvePlayableAudio(track);
+        this.setData({
+          audioRetryCount: Math.max(0, attempt - 1)
+        });
+        return result;
+      } catch (error) {
+        lastError = error;
+        const song = track && track.song ? track.song : {};
+        this.logAudioError({
+          stage: "fetch",
+          code: error && error.code ? error.code : "",
+          message: error && error.message ? error.message : "试听拉流失败",
+          attempt,
+          trackTitle: song.title || "",
+          trackArtist: song.artist || "",
+          trackOriginalId: song.originalId || ""
+        });
+      }
+    }
+
+    throw lastError || buildAudioError({ message: "当前无法连接试听服务。" });
   },
 
   handlePlayTrack(event) {
@@ -256,13 +673,70 @@ Page({
     }
 
     this.pendingTrackIndex = numericIndex;
+    this.pendingTrack = track;
+    if (this.playStartWatchdogTimer) {
+      clearTimeout(this.playStartWatchdogTimer);
+      this.playStartWatchdogTimer = null;
+    }
     this.setData({
       loadingTrackIndex: numericIndex,
-      playingTrackIndex: -1
+      playingTrackIndex: -1,
+      audioRetryCount: 0
     });
 
     const song = track.song || {};
     audioContext.title = [song.title, song.artist].filter(Boolean).join(" - ") || "AOTD";
-    audioContext.src = buildAudioStreamUrl(track);
+
+    this.fetchPlayableAudioWithRetry(track)
+      .then(({ audioUrl }) => {
+        if (this.pendingTrackIndex !== numericIndex) {
+          return;
+        }
+        if (audioUrl.indexOf(wx.env.USER_DATA_PATH) === 0) {
+          this.currentAudioFilePath = audioUrl;
+        } else {
+          this.currentAudioFilePath = "";
+        }
+        audioContext.src = audioUrl;
+        this.playStartWatchdogTimer = setTimeout(() => {
+          this.playStartWatchdogTimer = null;
+          if (this.data.playingTrackIndex === numericIndex || this.pendingTrackIndex !== numericIndex) {
+            return;
+          }
+          this.logAudioError({
+            stage: "play_start_timeout",
+            code: "PLAY_START_TIMEOUT",
+            message: "音频源已设置但播放未启动，触发播放启动超时保护。",
+            trackIndex: numericIndex
+          });
+          audioContext.stop();
+          this.setData({
+            loadingTrackIndex: -1,
+            playingTrackIndex: -1
+          });
+          wx.showModal({
+            title: "当前无法播放",
+            content: "试听启动超时，已自动中断本次缓冲。你可以重试或复制歌名到网易云搜索。",
+            showCancel: false
+          });
+        }, AUDIO_PLAY_START_TIMEOUT_MS);
+      })
+      .catch((error) => {
+        if (this.playStartWatchdogTimer) {
+          clearTimeout(this.playStartWatchdogTimer);
+          this.playStartWatchdogTimer = null;
+        }
+        this.setData({
+          loadingTrackIndex: -1,
+          playingTrackIndex: -1
+        });
+        wx.showModal({
+          title: "当前无法播放",
+          content: error && error.message
+            ? `${error.message}${formatAudioErrorCode(error)}`
+            : "这首歌暂时没有拿到可播放音频流，你可以先复制歌名到网易云搜索。",
+          showCancel: false
+        });
+      });
   }
 });

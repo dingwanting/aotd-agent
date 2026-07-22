@@ -1,0 +1,57 @@
+.landing-page {
+  position: relative;
+  height: 100vh;
+  overflow: hidden;
+  background: #f8e7ec;
+}
+
+.hero-frame {
+  position: relative;
+  width: 100%;
+  min-height: 100vh;
+  overflow: hidden;
+}
+
+.hero-image {
+  display: block;
+  width: 100%;
+  margin-top: -20px;
+}
+
+.start-hit-area {
+  position: absolute;
+  z-index: 5;
+  left: calc(54.9% - 15px);
+  top: calc(34.5% + 25px);
+  width: 44%;
+  height: 24%;
+  padding: 0;
+  border: none;
+  border-radius: 999rpx;
+  background: transparent;
+  color: transparent;
+  font-size: 0;
+  line-height: 0;
+}
+
+.start-hit-area::after {
+  border: none;
+}
+
+@media (max-width: 720rpx) {
+  .start-hit-area {
+    left: calc(54.7% - 15px);
+    top: calc(34.4% + 25px);
+    width: 44.3%;
+    height: 24.4%;
+  }
+}
+
+@media (min-width: 900rpx) {
+  .start-hit-area {
+    left: calc(55.2% - 15px);
+    top: calc(34.6% + 25px);
+    width: 43.4%;
+    height: 23.2%;
+  }
+}

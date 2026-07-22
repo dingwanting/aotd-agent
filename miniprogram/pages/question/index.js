@@ -1,8 +1,31 @@
 const { STORAGE_KEYS, getStorage, setStorage, clearResult, clearAnswers, clearQuestionDeck } = require("../../utils/storage");
 const { QUESTION_META, createQuestionDeck } = require("../../utils/question-bank");
 
+const QUESTION_HISTORY_LIMIT = 4;
+
 function loadAnswers() {
   return getStorage(STORAGE_KEYS.answers, {});
+}
+
+function loadQuestionHistory() {
+  return getStorage(STORAGE_KEYS.questionDeckHistory, {});
+}
+
+function updateQuestionHistory(deck) {
+  const history = loadQuestionHistory();
+  const nextHistory = Object.assign({}, history);
+
+  ["consumptionSource", "emotionalNeed", "emotionalImagery"].forEach((key) => {
+    const question = deck && deck[key] ? deck[key] : null;
+    const deckId = question && question.deckId ? question.deckId : "";
+    if (!deckId) {
+      return;
+    }
+    const previous = Array.isArray(nextHistory[key]) ? nextHistory[key].filter(Boolean) : [];
+    nextHistory[key] = [deckId].concat(previous.filter((item) => item !== deckId)).slice(0, QUESTION_HISTORY_LIMIT);
+  });
+
+  setStorage(STORAGE_KEYS.questionDeckHistory, nextHistory);
 }
 
 function ensureQuestionDeck(forceRefresh) {
@@ -17,8 +40,9 @@ function ensureQuestionDeck(forceRefresh) {
     return currentDeck;
   }
 
-  const nextDeck = createQuestionDeck();
+  const nextDeck = createQuestionDeck(loadQuestionHistory());
   setStorage(STORAGE_KEYS.questionDeck, nextDeck);
+  updateQuestionHistory(nextDeck);
   return nextDeck;
 }
 
@@ -53,8 +77,6 @@ Page({
     const meta = QUESTION_META[pageKey];
     const deck = ensureQuestionDeck(pageKey === "consumptionSource");
     const promptCopy = deck[pageKey];
-    const answers = loadAnswers();
-    const selectedValue = answers[meta.answerKey] || "";
 
     if (pageKey === "consumptionSource") {
       clearResult();
@@ -69,10 +91,10 @@ Page({
       hint: promptCopy.hint,
       footnote: promptCopy.footnote,
       options: promptCopy.options,
-      selectedValue,
+      selectedValue: "",
       showGenerateButton: !meta.autoAdvance,
       showBack: Boolean(meta.prevStep),
-      canGenerate: Boolean(selectedValue)
+      canGenerate: false
     });
   },
 
@@ -82,6 +104,9 @@ Page({
       clearAnswers();
       clearQuestionDeck();
       clearResult();
+      wx.redirectTo({
+        url: "/pages/landing/index"
+      });
       return;
     }
     wx.redirectTo({
@@ -100,10 +125,19 @@ Page({
       canGenerate: Boolean(value)
     });
 
-    if (currentMeta.autoAdvance && currentMeta.nextStep) {
-      wx.redirectTo({
-        url: `/pages/question/index?step=${currentMeta.nextStep}`
-      });
+    if (currentMeta.autoAdvance) {
+      if (currentMeta.nextStep === "result") {
+        wx.redirectTo({
+          url: "/pages/result/index"
+        });
+        return;
+      }
+
+      if (currentMeta.nextStep) {
+        wx.redirectTo({
+          url: `/pages/question/index?step=${currentMeta.nextStep}`
+        });
+      }
     }
   },
 

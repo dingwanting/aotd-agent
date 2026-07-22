@@ -4,7 +4,16 @@ export const STORAGE_KEYS = {
   answers: "aotd.answers",
   result: "aotd.result",
   questionDeck: "aotd.questionDeck",
+  questionDeckHistory: "aotd.questionDeckHistory",
+  playlistHistory: "aotd.playlistHistory",
 };
+
+const QUESTION_HISTORY_LIMIT = 4;
+const PLAYLIST_HISTORY_LIMIT = 6;
+
+function buildRotationSeed() {
+  return `${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
+}
 
 const HTML_ESCAPE_MAP = {
   "&": "&amp;",
@@ -52,7 +61,7 @@ export const questionConfig = {
     progressLabel: "即将生成歌单",
     nextHref: "/pages/playlist-result.html",
     prevHref: "/pages/question-need.html",
-    autoAdvance: false,
+    autoAdvance: true,
     answerKey: "emotionalImagery",
     options: [
       { value: "东京雨夜", label: "东京雨夜", description: "霓虹被雨线拉长，车窗上的倒影替你说完今天没说出口的话。", chips: ["Neon", "Rain"] },
@@ -100,6 +109,89 @@ function saveQuestionDeck(deck) {
   sessionStorage.setItem(STORAGE_KEYS.questionDeck, JSON.stringify(deck));
 }
 
+function loadQuestionHistory() {
+  try {
+    return JSON.parse(sessionStorage.getItem(STORAGE_KEYS.questionDeckHistory) || "{}");
+  } catch {
+    return {};
+  }
+}
+
+function saveQuestionHistory(history) {
+  sessionStorage.setItem(STORAGE_KEYS.questionDeckHistory, JSON.stringify(history));
+}
+
+function updateQuestionHistory(deck) {
+  const history = loadQuestionHistory();
+  const nextHistory = { ...history };
+
+  ["consumptionSource", "emotionalNeed", "emotionalImagery"].forEach((key) => {
+    const deckId = deck?.[key]?.deckId;
+    if (!deckId) return;
+    const previous = Array.isArray(nextHistory[key]) ? nextHistory[key].filter(Boolean) : [];
+    nextHistory[key] = [deckId].concat(previous.filter((item) => item !== deckId)).slice(0, QUESTION_HISTORY_LIMIT);
+  });
+
+  saveQuestionHistory(nextHistory);
+}
+
+function normalizePlaylistHistory(rawHistory) {
+  return Array.isArray(rawHistory)
+    ? rawHistory.filter((item) => item && item.answers && item.playlist && Array.isArray(item.playlist.tracks))
+    : [];
+}
+
+function loadPlaylistHistory() {
+  try {
+    return normalizePlaylistHistory(JSON.parse(sessionStorage.getItem(STORAGE_KEYS.playlistHistory) || "[]"));
+  } catch {
+    return [];
+  }
+}
+
+function savePlaylistHistory(history) {
+  sessionStorage.setItem(STORAGE_KEYS.playlistHistory, JSON.stringify(history));
+}
+
+function buildSongKey(song) {
+  return song?.title && song?.artist ? `${song.title}::${song.artist}` : "";
+}
+
+function appendPlaylistHistory(result) {
+  const history = loadPlaylistHistory();
+  const nextEntry = {
+    answers: result.answers,
+    playlist: result.playlist,
+  };
+  const deduped = [nextEntry]
+    .concat(history.filter((item) => !isSameAnswers(item.answers, nextEntry.answers)))
+    .slice(0, PLAYLIST_HISTORY_LIMIT);
+  savePlaylistHistory(deduped);
+}
+
+function collectRecentExclusions() {
+  const history = loadPlaylistHistory();
+  const excludeSongIds = [];
+  const excludeSongKeys = [];
+
+  history.slice(0, PLAYLIST_HISTORY_LIMIT).forEach((item) => {
+    item.playlist.tracks.forEach((track) => {
+      if (track.song?.id) {
+        excludeSongIds.push(track.song.id);
+      }
+      const key = buildSongKey(track.song);
+      if (key) {
+        excludeSongKeys.push(key);
+      }
+    });
+  });
+
+  return {
+    excludeSongIds: [...new Set(excludeSongIds)],
+    excludeSongKeys: [...new Set(excludeSongKeys)],
+  };
+}
+
 function ensureQuestionDeck(forceRefresh = false) {
   const currentDeck = loadQuestionDeck();
   if (
@@ -111,8 +203,9 @@ function ensureQuestionDeck(forceRefresh = false) {
     return currentDeck;
   }
 
-  const nextDeck = createQuestionDeck();
+  const nextDeck = createQuestionDeck(loadQuestionHistory());
   saveQuestionDeck(nextDeck);
+  updateQuestionHistory(nextDeck);
   return nextDeck;
 }
 
@@ -151,7 +244,7 @@ export function initQuestionPage(pageKey) {
     options: promptCopy?.options?.length ? promptCopy.options : config.options,
   };
   const answers = loadAnswers();
-  const selectedValue = answers[config.answerKey];
+  const selectedValue = answers[config.answerKey] || "";
 
   const optionsContainer = document.querySelector("[data-role='options']");
   const cta = document.querySelector("[data-role='next']");
@@ -198,10 +291,8 @@ export function initQuestionPage(pageKey) {
     cta.hidden = Boolean(resolvedConfig.autoAdvance);
   }
 
-  let currentValue = selectedValue || resolvedConfig.options[0].value;
+  let currentValue = selectedValue;
   let isNavigating = false;
-  answers[resolvedConfig.answerKey] = currentValue;
-  saveAnswers(answers);
   renderQuestionOptions(optionsContainer, resolvedConfig, currentValue);
 
   optionsContainer.addEventListener("click", (event) => {
@@ -222,6 +313,9 @@ export function initQuestionPage(pageKey) {
 
   cta.addEventListener("click", (event) => {
     event.preventDefault();
+    if (!currentValue) {
+      return;
+    }
     answers[resolvedConfig.answerKey] = currentValue;
     saveAnswers(answers);
     window.location.href = resolvedConfig.nextHref;
@@ -230,24 +324,26 @@ export function initQuestionPage(pageKey) {
 
 export async function requestRecommendation(answers) {
   const previousResult = loadResult();
+  const recentExclusions = collectRecentExclusions();
   const excludeSongIds =
-    previousResult?.playlist?.tracks?.map((track) => track.song?.id).filter(Boolean) || [];
+    recentExclusions.excludeSongIds.concat(
+      previousResult?.playlist?.tracks?.map((track) => track.song?.id).filter(Boolean) || [],
+    );
   const excludeSongKeys =
-    previousResult?.playlist?.tracks
-      ?.map((track) => {
-        const title = track.song?.title;
-        const artist = track.song?.artist;
-        return title && artist ? `${title}::${artist}` : null;
-      })
-      .filter(Boolean) || [];
+    recentExclusions.excludeSongKeys.concat(
+      previousResult?.playlist?.tracks
+        ?.map((track) => buildSongKey(track.song))
+        .filter(Boolean) || [],
+    );
 
   const response = await fetch("/api/aotd/recommendation", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
       ...answers,
-      excludeSongIds,
-      excludeSongKeys,
+      excludeSongIds: [...new Set(excludeSongIds)],
+      excludeSongKeys: [...new Set(excludeSongKeys)],
+      rotationSeed: buildRotationSeed(),
     }),
   });
 
@@ -257,6 +353,7 @@ export async function requestRecommendation(answers) {
   }
 
   saveResult(payload);
+  appendPlaylistHistory(payload);
   return payload;
 }
 
@@ -405,13 +502,12 @@ function buildPlayUrl(result) {
 
 function renderResultPage(result) {
   const primaryTrack = result.playlist?.tracks?.[0];
-  setText("[data-role='intro-title']", result.analysis.hitLine || result.analysis.todayState || result.plan.todayStateSummary);
-  setText("[data-role='intro-support']", result.analysis.todayState || result.playlist.description);
   setText("[data-role='cover-title']", stripPlaylistPrefix(result.playlist.title));
   setText("[data-role='cover-subtitle']", result.playlist.subtitle);
   setText("[data-role='cover-duration']", `约 ${estimateDurationMinutes(result.playlist.tracks.length)} 分钟`);
   setText("[data-role='cover-count']", `${result.playlist.tracks.length} 首曲目`);
   setText("[data-role='cover-energy']", energyLabel(primaryTrack?.song?.energy));
+  setText("[data-role='cover-featured']", primaryTrack?.song?.title ? `首推 ${primaryTrack.song.title}` : "首推单曲");
 
   const trackList = document.querySelector("[data-role='track-list']");
   if (trackList) {
@@ -421,14 +517,13 @@ function renderResultPage(result) {
         return `
           <div class="track">
             <div class="track-main">
+              <span class="track-rank">#${track.rank}</span>
               <div class="track-copy">
                 <strong>${escapeHtml(track.song.title)}</strong>
                 <span>${escapeHtml(track.song.artist)}</span>
               </div>
-              <span class="track-rank">#${track.rank}</span>
             </div>
             <div class="track-actions">
-              <span class="track-note">${escapeHtml(playMeta.note)}</span>
               <a class="track-play" href="${escapeHtml(playMeta.href)}">
                 ${escapeHtml(playMeta.label)}
               </a>

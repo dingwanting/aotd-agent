@@ -2,3 +2,6 @@ node_modules/
 dist/
 .env
 project.private.config.json
+.DS_Store
+data/*.backup-*.xlsx
+data/*.original-id-report.json

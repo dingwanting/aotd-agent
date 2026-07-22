@@ -318,7 +318,7 @@ footer {
 }
 .journey-list, .track-list {
   display: grid;
-  gap: 10px;
+  gap: 12px;
   margin-top: 12px;
 }
 .track-copy {
@@ -329,10 +329,11 @@ footer {
 .journey-item, .track {
   justify-content: space-between;
   gap: 12px;
-  padding: 12px 14px;
-  border-radius: 18px;
+  padding: 14px 16px;
+  border-radius: 20px;
   border: 1px solid var(--aotd-border);
-  background: var(--shell-pill);
+  background: linear-gradient(180deg, rgba(255, 250, 252, 0.94), var(--shell-pill));
+  box-shadow: 0 12px 22px rgba(116, 74, 92, 0.08);
 }
 .journey-item span:last-child, .track span {
   color: var(--aotd-muted-foreground);
@@ -353,11 +354,6 @@ footer {
   align-items: center;
   gap: 8px;
   flex: none;
-}
-.track-note {
-  font-size: 11px;
-  color: var(--aotd-muted-foreground);
-  white-space: nowrap;
 }
 .track-play {
   display: inline-flex;
@@ -384,17 +380,18 @@ footer {
 .cover-card {
   border-radius: 28px;
   box-shadow: 0 20px 36px var(--aotd-overlay);
+  overflow: hidden;
 }
 .cover-art {
-  min-height: 228px;
+  min-height: 260px;
   border-radius: 24px;
   border: 1px solid var(--aotd-border);
-  padding: 18px;
+  padding: 22px;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
   background:
-    linear-gradient(180deg, var(--shell-pill), var(--shell-stage-fade)),
+    linear-gradient(180deg, rgba(255, 250, 252, 0.96), rgba(248, 236, 242, 0.98)),
     radial-gradient(circle at 22% 28%, var(--shell-glow-accent), var(--shell-stage-fade) 24%),
     radial-gradient(circle at 78% 18%, var(--shell-glow-primary), var(--shell-stage-fade) 34%);
   overflow: hidden;
@@ -418,7 +415,7 @@ footer {
   color: var(--aotd-accent-foreground);
 }
 .cover-title {
-  font-size: 34px;
+  font-size: 38px;
   line-height: 1.02;
   letter-spacing: -0.05em;
 }
@@ -428,6 +425,12 @@ footer {
   flex-wrap: wrap;
   color: var(--aotd-muted-foreground);
   font-size: 13px;
+}
+.cover-meta span {
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.65);
+  border: 1px solid rgba(214, 184, 196, 0.46);
 }
 .button-row {
   gap: 12px;

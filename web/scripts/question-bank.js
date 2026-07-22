@@ -2,12 +2,40 @@ function pickRandom(items) {
   return items[Math.floor(Math.random() * items.length)];
 }
 
+function shuffleArray(items) {
+  const cloned = items.slice();
+  for (let index = cloned.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(Math.random() * (index + 1));
+    const current = cloned[index];
+    cloned[index] = cloned[swapIndex];
+    cloned[swapIndex] = current;
+  }
+  return cloned;
+}
+
+function getQuestionPoolId(type) {
+  return [type.titles[0], type.options.map((option) => option.label).join("|")].join("::");
+}
+
+function pickAvoidRecent(items, recentIds = []) {
+  const recentSet = new Set(recentIds.filter(Boolean));
+  const filtered = items.filter((item) => !recentSet.has(getQuestionPoolId(item)));
+  if (filtered.length > 0) {
+    return pickRandom(filtered);
+  }
+
+  return items
+    .slice()
+    .sort((left, right) => recentIds.indexOf(getQuestionPoolId(left)) - recentIds.indexOf(getQuestionPoolId(right)))[0];
+}
+
 function buildQuestion(type) {
   return {
+    deckId: getQuestionPoolId(type),
     title: pickRandom(type.titles),
     hint: pickRandom(type.hints),
     footnote: pickRandom(type.footnotes),
-    options: type.options.map((option, index) => ({
+    options: shuffleArray(type.options).map((option, index) => ({
       ...option,
       mark: option.mark || String(index + 1).padStart(2, "0"),
     })),
@@ -677,10 +705,16 @@ export const questionPromptPool = {
   emotionalImagery: emotionalImageryTypes,
 };
 
-export function createQuestionDeck() {
+export function createQuestionDeck(history = {}) {
   return {
-    consumptionSource: buildQuestion(pickRandom(questionPromptPool.consumptionSource)),
-    emotionalNeed: buildQuestion(pickRandom(questionPromptPool.emotionalNeed)),
-    emotionalImagery: buildQuestion(pickRandom(questionPromptPool.emotionalImagery)),
+    consumptionSource: buildQuestion(
+      pickAvoidRecent(questionPromptPool.consumptionSource, history.consumptionSource || []),
+    ),
+    emotionalNeed: buildQuestion(
+      pickAvoidRecent(questionPromptPool.emotionalNeed, history.emotionalNeed || []),
+    ),
+    emotionalImagery: buildQuestion(
+      pickAvoidRecent(questionPromptPool.emotionalImagery, history.emotionalImagery || []),
+    ),
   };
 }

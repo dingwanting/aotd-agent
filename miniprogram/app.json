@@ -1,5 +1,6 @@
 {
   "pages": [
+    "pages/landing/index",
     "pages/question/index",
     "pages/result/index"
   ],

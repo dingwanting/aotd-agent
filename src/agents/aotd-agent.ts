@@ -9,6 +9,7 @@ import { OpenAICompatibleClient } from "../providers/openai-compatible.js";
 export interface AotdRunOptions {
   excludeSongIds?: string[];
   excludeSongKeys?: string[];
+  rotationSeed?: number | string;
 }
 
 export class AotdAgent {
@@ -24,9 +25,12 @@ export class AotdAgent {
     const plan = await planner.plan({ answers });
     const catalog = loadSongsFromWorkbook(env.aotdWorkbookPath);
     const retriever = new AotdRetriever(catalog);
-    const candidates = retriever.retrieve(plan, 8, {
+    const rotationSeed = options?.rotationSeed ?? Date.now();
+    // 取 12 个候选，让 retriever 在多样化重排后能稳定挑出 5 首不重复的
+    const candidates = retriever.retrieve(plan, 12, {
       excludeSongIds: options?.excludeSongIds,
       excludeSongKeys: options?.excludeSongKeys,
+      rotationSeed,
     });
     const analysis = buildAotdAnalysis(plan);
     const playlist = buildAotdPlaylist(plan, candidates);
