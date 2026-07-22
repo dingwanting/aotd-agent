@@ -98,6 +98,12 @@ function requestRecommendation(answers) {
       rotationSeed: buildRotationSeed()
     };
 
+    const userId = getStorage(STORAGE_KEYS.userId, "");
+    const requestHeaders = { "content-type": "application/json" };
+    if (userId) {
+      requestHeaders["X-AOTD-User-Id"] = userId;
+    }
+
     const handleSuccess = (response) => {
       if (response.statusCode >= 200 && response.statusCode < 300) {
         setStorage(STORAGE_KEYS.result, response.data);
@@ -137,10 +143,7 @@ function requestRecommendation(answers) {
           },
           path: "/api/aotd/recommendation",
           method: "POST",
-          header: {
-            "content-type": "application/json",
-            "X-WX-SERVICE": serviceName
-          },
+          header: Object.assign({ "X-WX-SERVICE": serviceName }, requestHeaders),
           data,
           success: handleSuccess,
           fail: (error) => {
@@ -162,9 +165,7 @@ function requestRecommendation(answers) {
     wx.request({
       url: `${API_BASE_URL}/api/aotd/recommendation`,
       method: "POST",
-      header: {
-        "content-type": "application/json"
-      },
+      header: requestHeaders,
       data,
       success: handleSuccess,
       fail: handleFail,
@@ -180,7 +181,78 @@ function loadResultIfMatched(answers) {
   return null;
 }
 
+function requestWxLogin(code, nickname) {
+  const userId = getStorage(STORAGE_KEYS.userId, "");
+  const headers = { "content-type": "application/json" };
+  if (userId) {
+    headers["X-AOTD-User-Id"] = userId;
+  }
+  return new Promise((resolve, reject) => {
+    const data = { code, nickname: nickname || "" };
+    if (!USE_LOCAL_API && USE_CLOUD_CONTAINER) {
+      if (!wx.cloud || !wx.cloud.callContainer) {
+        reject(new Error("当前微信基础库不支持云托管调用"));
+        return;
+      }
+      const serviceNames = Array.from(
+        new Set([CLOUD_SERVICE_NAME].concat(CLOUD_SERVICE_FALLBACKS || []).filter(Boolean))
+      );
+      const tryCall = (index) => {
+        const serviceName = serviceNames[index];
+        if (!serviceName) {
+          reject(new Error("无法连接到云托管服务"));
+          return;
+        }
+        wx.cloud.callContainer({
+          config: { env: CLOUD_ENV_ID },
+          path: "/api/auth/wx-login",
+          method: "POST",
+          header: Object.assign({ "X-WX-SERVICE": serviceName }, headers),
+          data,
+          success: (response) => {
+            if (response.statusCode >= 200 && response.statusCode < 300 && response.data && response.data.profile) {
+              resolve(response.data);
+              return;
+            }
+            const message = response.data && response.data.error ? response.data.error : "登录失败";
+            reject(new Error(message));
+          },
+          fail: (error) => {
+            if (index < serviceNames.length - 1) {
+              tryCall(index + 1);
+              return;
+            }
+            const detail = error && error.errMsg ? `：${error.errMsg}` : "";
+            reject(new Error(`登录失败${detail}`));
+          },
+        });
+      };
+      tryCall(0);
+      return;
+    }
+    wx.request({
+      url: `${API_BASE_URL}/api/auth/wx-login`,
+      method: "POST",
+      header: headers,
+      data,
+      success: (response) => {
+        if (response.statusCode >= 200 && response.statusCode < 300 && response.data && response.data.profile) {
+          resolve(response.data);
+          return;
+        }
+        const message = response.data && response.data.error ? response.data.error : "登录失败";
+        reject(new Error(message));
+      },
+      fail: (error) => {
+        const detail = error && error.errMsg ? `：${error.errMsg}` : "";
+        reject(new Error(`登录失败${detail}`));
+      },
+    });
+  });
+}
+
 module.exports = {
   requestRecommendation,
-  loadResultIfMatched
+  loadResultIfMatched,
+  requestWxLogin,
 };

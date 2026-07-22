@@ -4,6 +4,9 @@ const STORAGE_KEYS = {
   questionDeck: "aotd.questionDeck",
   questionDeckHistory: "aotd.questionDeckHistory",
   playlistHistory: "aotd.playlistHistory",
+  userId: "aotd.userId",
+  nickname: "aotd.nickname",
+  isAnonymous: "aotd.isAnonymous",
 };
 
 function getStorage(key, fallbackValue) {
@@ -43,6 +46,25 @@ function clearQuestionDeck() {
   }
 }
 
+// 阶段 1：清用户态只清 userId/nickname，不动答题缓存（避免答题中途被踢掉）
+function clearUser() {
+  try {
+    wx.removeStorageSync(STORAGE_KEYS.userId);
+  } catch {
+    // ignore
+  }
+  try {
+    wx.removeStorageSync(STORAGE_KEYS.nickname);
+  } catch {
+    // ignore
+  }
+  try {
+    wx.removeStorageSync(STORAGE_KEYS.isAnonymous);
+  } catch {
+    // ignore
+  }
+}
+
 module.exports = {
   STORAGE_KEYS,
   getStorage,
@@ -50,4 +72,5 @@ module.exports = {
   clearResult,
   clearAnswers,
   clearQuestionDeck,
+  clearUser,
 };

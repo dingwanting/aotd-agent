@@ -3,6 +3,14 @@ const { QUESTION_META, createQuestionDeck } = require("../../utils/question-bank
 
 const QUESTION_HISTORY_LIMIT = 4;
 
+const ANSWER_KEYS = ["consumptionSource", "emotionalNeed", "emotionalImagery"];
+
+// 进度条按"已答题数 / 总题数"算，未答时停在已完成的进度
+function computeProgress(answers) {
+  const count = ANSWER_KEYS.reduce((acc, key) => acc + (answers && answers[key] ? 1 : 0), 0);
+  return Math.round((count / ANSWER_KEYS.length) * 100);
+}
+
 function loadAnswers() {
   return getStorage(STORAGE_KEYS.answers, {});
 }
@@ -82,19 +90,23 @@ Page({
       clearResult();
     }
 
+    const answers = loadAnswers();
+    // 恢复之前答过的题（避免用户来回切页面丢失选中）
+    const restoredValue = answers[meta.answerKey] || "";
+
     this.setData({
       pageKey,
       step: meta.step,
-      progress: meta.progress,
+      progress: computeProgress(answers),
       progressLabel: meta.progressLabel,
       title: promptCopy.title,
       hint: promptCopy.hint,
       footnote: promptCopy.footnote,
       options: promptCopy.options,
-      selectedValue: "",
+      selectedValue: restoredValue,
       showGenerateButton: !meta.autoAdvance,
       showBack: Boolean(meta.prevStep),
-      canGenerate: false
+      canGenerate: Boolean(restoredValue)
     });
   },
 
@@ -122,7 +134,8 @@ Page({
     setStorage(STORAGE_KEYS.answers, answers);
     this.setData({
       selectedValue: value,
-      canGenerate: Boolean(value)
+      canGenerate: Boolean(value),
+      progress: computeProgress(answers)
     });
 
     if (currentMeta.autoAdvance) {

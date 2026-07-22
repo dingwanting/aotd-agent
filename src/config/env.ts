@@ -5,6 +5,8 @@ export interface AppEnv {
   openaiModel?: string;
   openaiBaseUrl: string;
   aotdWorkbookPath: string;
+  wxAppId: string;
+  wxSecret: string;
 }
 
 export function loadEnv(): AppEnv {
@@ -20,5 +22,7 @@ export function loadEnv(): AppEnv {
     openaiBaseUrl:
       process.env.OPENAI_BASE_URL || process.env.OPENAI_BASEURL || "https://api.openai.com/v1",
     aotdWorkbookPath: workbookPath,
+    wxAppId: process.env.WX_APPID || "",
+    wxSecret: process.env.WX_SECRET || "",
   };
 }

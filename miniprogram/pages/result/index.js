@@ -14,6 +14,29 @@ const AUDIO_CACHE_MIN_BYTES = 1024;
 const AUDIO_PREVIEW_BYTES = 256 * 1024;
 const AUDIO_FETCH_TIMEOUT_MS = 15000;
 const AUDIO_PLAY_START_TIMEOUT_MS = 10000;
+const FALLBACK_NICKNAME = "朋友";
+
+// 后端 playlist.title 形如 "AOTD|去探索一下咖啡店窗边"，前端去掉 "AOTD|"
+// 拼上昵称变成 "{nickname}，去探索一下咖啡店窗边"
+function buildCoverTitle(rawTitle, nickname) {
+  const cleaned = String(rawTitle || "").replace(/^AOTD\s*\|\s*/i, "").trim();
+  const who = nickname && nickname !== FALLBACK_NICKNAME ? nickname : FALLBACK_NICKNAME;
+  if (!cleaned) {
+    return `${who}，今晚的歌单已经备好`;
+  }
+  return `${who}，${cleaned}`;
+}
+
+function applyCoverTitle(result, nickname) {
+  if (!result || !result.playlist) {
+    return result;
+  }
+  return Object.assign({}, result, {
+    playlist: Object.assign({}, result.playlist, {
+      title: buildCoverTitle(result.playlist.title, nickname),
+    }),
+  });
+}
 
 function getAnswers() {
   return getStorage(STORAGE_KEYS.answers, {});
@@ -354,12 +377,14 @@ Page({
       return;
     }
 
+    const nickname = getStorage(STORAGE_KEYS.nickname, FALLBACK_NICKNAME);
+
     const cached = loadResultIfMatched(answers);
     if (cached) {
       this.setData({
         loading: false,
         errorMessage: "",
-        result: cached,
+        result: applyCoverTitle(cached, nickname),
         copiedTrackIndex: -1,
         playingTrackIndex: -1,
         loadingTrackIndex: -1
@@ -378,7 +403,7 @@ Page({
       const result = await requestRecommendation(answers);
       this.setData({
         loading: false,
-        result,
+        result: applyCoverTitle(result, nickname),
         copiedTrackIndex: -1,
         playingTrackIndex: -1,
         loadingTrackIndex: -1

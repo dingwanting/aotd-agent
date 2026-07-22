@@ -6,13 +6,82 @@ export const STORAGE_KEYS = {
   questionDeck: "aotd.questionDeck",
   questionDeckHistory: "aotd.questionDeckHistory",
   playlistHistory: "aotd.playlistHistory",
+  userId: "aotd.userId",
+  nickname: "aotd.nickname",
 };
 
+const ANSWER_KEYS = ["consumptionSource", "emotionalNeed", "emotionalImagery"];
+const FALLBACK_NICKNAME = "朋友";
 const QUESTION_HISTORY_LIMIT = 4;
 const PLAYLIST_HISTORY_LIMIT = 6;
 
 function buildRotationSeed() {
   return `${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
+}
+
+function computeProgress(answers) {
+  const count = ANSWER_KEYS.reduce((acc, key) => acc + (answers && answers[key] ? 1 : 0), 0);
+  return Math.round((count / ANSWER_KEYS.length) * 100);
+}
+
+function buildCoverTitle(rawTitle, nickname) {
+  const cleaned = String(rawTitle || "").replace(/^AOTD\s*\|\s*/i, "").trim();
+  const who = nickname && nickname !== FALLBACK_NICKNAME ? nickname : FALLBACK_NICKNAME;
+  if (!cleaned) {
+    return `${who}，今晚的歌单已经备好`;
+  }
+  return `${who}，${cleaned}`;
+}
+
+export async function bootstrapUser() {
+  // 先看本地有没有 userId
+  let userId = "";
+  let nickname = "";
+  try {
+    userId = sessionStorage.getItem(STORAGE_KEYS.userId) || "";
+    nickname = sessionStorage.getItem(STORAGE_KEYS.nickname) || "";
+  } catch {
+    userId = "";
+    nickname = "";
+  }
+
+  if (userId && nickname) {
+    return { userId, nickname };
+  }
+
+  // 没有就 fetch /api/auth/profile，没有就让后端发 cookie 颁发匿名
+  try {
+    const response = await fetch("/api/auth/profile", {
+      method: "GET",
+      credentials: "same-origin",
+    });
+    if (!response.ok) {
+      return null;
+    }
+    const payload = await response.json();
+    const profile = payload && payload.profile ? payload.profile : null;
+    if (!profile) return null;
+    try {
+      sessionStorage.setItem(STORAGE_KEYS.userId, profile.userId || "");
+      sessionStorage.setItem(STORAGE_KEYS.nickname, profile.nickname || FALLBACK_NICKNAME);
+    } catch {
+      // ignore
+    }
+    return { userId: profile.userId, nickname: profile.nickname || FALLBACK_NICKNAME };
+  } catch {
+    return null;
+  }
+}
+
+export function getCurrentUser() {
+  try {
+    return {
+      userId: sessionStorage.getItem(STORAGE_KEYS.userId) || "",
+      nickname: sessionStorage.getItem(STORAGE_KEYS.nickname) || FALLBACK_NICKNAME,
+    };
+  } catch {
+    return { userId: "", nickname: FALLBACK_NICKNAME };
+  }
 }
 
 const HTML_ESCAPE_MAP = {
@@ -235,7 +304,8 @@ export function renderQuestionOptions(container, config, selectedValue) {
   });
 }
 
-export function initQuestionPage(pageKey) {
+export async function initQuestionPage(pageKey) {
+  await bootstrapUser();
   const config = questionConfig[pageKey];
   const questionDeck = ensureQuestionDeck(pageKey === "consumptionSource");
   const promptCopy = questionDeck[pageKey];
@@ -267,7 +337,8 @@ export function initQuestionPage(pageKey) {
   renderQuestionOptions(optionsContainer, resolvedConfig, selectedValue);
 
   if (progressFill) {
-    progressFill.style.width = resolvedConfig.progress;
+    // 进度条按"已答题数 / 总题数"算，未答时停在已完成的进度
+    progressFill.style.width = `${computeProgress(answers)}%`;
   }
   if (progressLabel) {
     progressLabel.textContent = resolvedConfig.progressLabel;
@@ -336,9 +407,16 @@ export async function requestRecommendation(answers) {
         .filter(Boolean) || [],
     );
 
+  const user = getCurrentUser();
+  const headers = { "content-type": "application/json" };
+  if (user.userId) {
+    headers["X-AOTD-User-Id"] = user.userId;
+  }
+
   const response = await fetch("/api/aotd/recommendation", {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers,
+    credentials: "same-origin",
     body: JSON.stringify({
       ...answers,
       excludeSongIds: [...new Set(excludeSongIds)],
@@ -502,7 +580,8 @@ function buildPlayUrl(result) {
 
 function renderResultPage(result) {
   const primaryTrack = result.playlist?.tracks?.[0];
-  setText("[data-role='cover-title']", stripPlaylistPrefix(result.playlist.title));
+  const user = getCurrentUser();
+  setText("[data-role='cover-title']", buildCoverTitle(result.playlist.title, user.nickname));
   setText("[data-role='cover-subtitle']", result.playlist.subtitle);
   setText("[data-role='cover-duration']", `约 ${estimateDurationMinutes(result.playlist.tracks.length)} 分钟`);
   setText("[data-role='cover-count']", `${result.playlist.tracks.length} 首曲目`);
@@ -553,6 +632,9 @@ function renderResultPage(result) {
 }
 
 export async function initResultPage() {
+  // 先拿到 userId/nickname（顺便让后端 set cookie 给后续 requestRecommendation 用）
+  await bootstrapUser();
+
   const answers = ensureAnswersCompleted();
   if (!answers) {
     return;

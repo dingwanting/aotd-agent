@@ -9,6 +9,9 @@ import { fileURLToPath } from "node:url";
 import { AotdAgent } from "./agents/aotd-agent.js";
 import type { AotdQuestionnaireAnswers } from "./domain/aotd/types.js";
 import { resolveNeteaseAudio, resolveNeteaseTrackUrl } from "./integrations/netease.js";
+import { loadEnv } from "./config/env.js";
+import { exchangeWxCodeForOpenId } from "./auth/wx-login.js";
+import { userStore, type UserRecord } from "./auth/user-store.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(__dirname, "..");
@@ -16,10 +19,13 @@ const webRoot = path.join(projectRoot, "web");
 const port = Number(process.env.PORT || 4173);
 const AUDIO_STREAM_FETCH_TIMEOUT_MS = 12000;
 const DEFAULT_AUDIO_PREVIEW_BYTES = 256 * 1024;
+const USER_ID_COOKIE = "aotd_uid";
 
 // 部署版本指纹：每次代码改动必须 bump，方便从云托管日志确认跑的是哪个版本
 // 同时启动时打 dist 文件 hash + 文件 mtime + git HEAD，可以一眼看出"是否在跑新代码"
-const DEPLOY_VERSION = "aotd-2026-07-22-r4-moodtag-autoplay-v1";
+const DEPLOY_VERSION = "aotd-2026-07-22-r5-userid-skeleton-v1";
+
+const appEnv = loadEnv();
 
 function shortHash(input: string): string {
   let hash = 5381;
@@ -91,6 +97,137 @@ function handleHealth(res: HttpResponse) {
     port,
     workbookPath,
     workbookExists: fsSync.existsSync(workbookPath),
+    auth: {
+      mode: appEnv.wxAppId && appEnv.wxSecret ? "wx-code2session" : "anonymous-only",
+      userCount: userStore.getUserCount(),
+      wxConfigured: Boolean(appEnv.wxAppId && appEnv.wxSecret),
+    },
+  });
+}
+
+function readCookie(req: HttpRequest, name: string): string {
+  const raw = req.headers.cookie || "";
+  if (!raw) return "";
+  const parts = raw.split(";");
+  for (const part of parts) {
+    const [k, ...rest] = part.trim().split("=");
+    if (k === name) {
+      return decodeURIComponent(rest.join("="));
+    }
+  }
+  return "";
+}
+
+function setSessionCookie(res: HttpResponse, value: string) {
+  // session cookie：关浏览器失效，跟前端 sessionStorage 行为一致
+  res.setHeader(
+    "Set-Cookie",
+    `${USER_ID_COOKIE}=${encodeURIComponent(value)}; Path=/; HttpOnly; SameSite=Lax`,
+  );
+}
+
+function readUserIdFromRequest(req: HttpRequest): string {
+  const headerId = (req.headers["x-aotd-user-id"] || req.headers["X-AOTD-User-Id"]) as string | undefined;
+  if (headerId && typeof headerId === "string" && headerId.trim()) {
+    return headerId.trim();
+  }
+  return readCookie(req, USER_ID_COOKIE);
+}
+
+function readUser(req: HttpRequest): UserRecord | undefined {
+  const userId = readUserIdFromRequest(req);
+  if (!userId) return undefined;
+  return userStore.get(userId);
+}
+
+function publicProfile(record: UserRecord | undefined): { userId: string; nickname: string; isAnonymous: boolean } | null {
+  if (!record) return null;
+  return {
+    userId: record.userId,
+    nickname: record.nickname,
+    isAnonymous: record.isAnonymous,
+  };
+}
+
+async function handleAuthProfile(req: HttpRequest, res: HttpResponse) {
+  const existing = readUser(req);
+  if (existing) {
+    userStore.touch(existing.userId);
+    sendJson(res, 200, { ok: true, profile: publicProfile(existing) });
+    return;
+  }
+
+  // 没 userId 的请求（首次访问）颁发一个匿名 userId 并 set-cookie
+  const created = userStore.createAnonymous();
+  setSessionCookie(res, created.userId);
+  sendJson(res, 200, { ok: true, profile: publicProfile(created), issued: true });
+}
+
+async function readJsonBody(req: HttpRequest): Promise<unknown> {
+  const rawBody = await readRequestBody(req);
+  if (!rawBody.trim()) return {};
+  try {
+    return JSON.parse(rawBody);
+  } catch {
+    return null;
+  }
+}
+
+async function handleWxLogin(req: HttpRequest, res: HttpResponse) {
+  if (req.method !== "POST") {
+    sendJson(res, 405, { error: "Method not allowed" });
+    return;
+  }
+
+  const body = await readJsonBody(req);
+  if (!body || typeof body !== "object") {
+    sendJson(res, 400, { error: "Invalid JSON body" });
+    return;
+  }
+  const payload = body as { code?: string; nickname?: string };
+  const code = typeof payload.code === "string" ? payload.code.trim() : "";
+  const nickname = typeof payload.nickname === "string" ? payload.nickname.trim() : "";
+
+  if (!code) {
+    sendJson(res, 400, { error: "Missing code" });
+    return;
+  }
+
+  // 1) 优先尝试用 code 换 openid（需要 WX_APPID + WX_SECRET 配齐）
+  const session = await exchangeWxCodeForOpenId(appEnv.wxAppId, appEnv.wxSecret, code);
+  if (session && session.openid) {
+    const record = userStore.upsertByOpenid(session.openid, nickname);
+    setSessionCookie(res, record.userId);
+    sendJson(res, 200, {
+      ok: true,
+      profile: publicProfile(record),
+      isNew: !session.unionid && record.createdAt === record.lastSeenAt,
+    });
+    return;
+  }
+
+  // 2) 没配 secret 或 code 失效：基于已有 userId 升级（如果有），否则发匿名
+  const existing = readUser(req);
+  if (existing) {
+    if (nickname && nickname !== "朋友") {
+      existing.nickname = nickname;
+    }
+    userStore.touch(existing.userId);
+    sendJson(res, 200, {
+      ok: true,
+      profile: publicProfile(existing),
+      fallback: "no-wx-session",
+    });
+    return;
+  }
+
+  const created = userStore.createAnonymous();
+  setSessionCookie(res, created.userId);
+  sendJson(res, 200, {
+    ok: true,
+    profile: publicProfile(created),
+    fallback: "no-wx-session",
+    issued: true,
   });
 }
 
@@ -174,6 +311,12 @@ async function handleApi(req: HttpRequest, res: HttpResponse) {
       excludeSongKeys: getExcludeSongKeys(payload),
       rotationSeed: getRotationSeed(payload),
     });
+    // 阶段 1：仅记录 userId 到启动日志，阶段 2 才用于按用户避重/缓存答案。
+    const user = readUser(req);
+    if (user) {
+      userStore.touch(user.userId);
+      console.log(`[aotd] user=${user.userId} answers=${JSON.stringify(payload)}`);
+    }
     sendJson(res, 200, result);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
@@ -321,6 +464,16 @@ const server = createServer(async (req, res) => {
     return;
   }
 
+  if (requestUrl.pathname === "/api/auth/profile") {
+    await handleAuthProfile(req, res);
+    return;
+  }
+
+  if (requestUrl.pathname === "/api/auth/wx-login") {
+    await handleWxLogin(req, res);
+    return;
+  }
+
   if (requestUrl.pathname === "/api/netease/play") {
     await handleNeteasePlay(requestUrl, res);
     return;
@@ -342,5 +495,6 @@ const server = createServer(async (req, res) => {
 server.listen(port, () => {
   console.log(`[BOOT] deployVersion=${DEPLOY_VERSION}`);
   console.log(`[BOOT] retriever=${JSON.stringify(retrieverFingerprint)}`);
+  console.log(`[BOOT] auth.mode=${appEnv.wxAppId && appEnv.wxSecret ? "wx-code2session" : "anonymous-only"}`);
   console.log(`AOTD web server running at http://localhost:${port}`);
 });
