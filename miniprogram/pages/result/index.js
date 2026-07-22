@@ -16,8 +16,9 @@ const AUDIO_FETCH_TIMEOUT_MS = 15000;
 const AUDIO_PLAY_START_TIMEOUT_MS = 10000;
 const FALLBACK_NICKNAME = "朋友";
 const POSTER_CANVAS_ID = "aotdPosterCanvas";
-const POSTER_WIDTH = 1080;
-const POSTER_HEIGHT = 1620;
+const POSTER_WIDTH = 720;
+const POSTER_HEIGHT = 1080;
+const POSTER_SCALE = POSTER_WIDTH / 1080;
 
 function normalizeCoverTitle(rawTitle) {
   const title = String(rawTitle || "").trim();
@@ -52,6 +53,10 @@ function withPromise(api, options) {
       }),
     );
   });
+}
+
+function wait(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function wrapPosterText(ctx, text, x, y, maxWidth, lineHeight, maxLines) {
@@ -656,6 +661,41 @@ Page({
     });
   },
 
+  async ensurePosterCanvas() {
+    if (this.posterCanvas && this.posterCtx) {
+      return {
+        canvas: this.posterCanvas,
+        ctx: this.posterCtx,
+      };
+    }
+
+    return new Promise((resolve, reject) => {
+      wx.createSelectorQuery()
+        .in(this)
+        .select(`#${POSTER_CANVAS_ID}`)
+        .fields({ node: true, size: true })
+        .exec((res) => {
+          const target = res && res[0];
+          if (!target || !target.node) {
+            reject(new Error("报告画布初始化失败"));
+            return;
+          }
+
+          const canvas = target.node;
+          const ctx = canvas.getContext("2d");
+          const systemInfo = wx.getSystemInfoSync ? wx.getSystemInfoSync() : { pixelRatio: 1 };
+          const dpr = Math.max(1, Number(systemInfo.pixelRatio) || 1);
+          canvas.width = Math.max(1, Math.floor(target.width * dpr));
+          canvas.height = Math.max(1, Math.floor(target.height * dpr));
+          ctx.scale(dpr, dpr);
+          this.posterCanvas = canvas;
+          this.posterCtx = ctx;
+          this.posterDpr = dpr;
+          resolve({ canvas, ctx });
+        });
+    });
+  },
+
   async resolvePosterAvatarPath() {
     const avatarSource = this.data.profileAvatarFileId || this.data.profileAvatarUrl;
     if (!avatarSource) {
@@ -683,26 +723,48 @@ Page({
     return imageInfo && imageInfo.path ? imageInfo.path : "";
   },
 
-  async canvasToPosterFilePath() {
-    return new Promise((resolve, reject) => {
-      wx.canvasToTempFilePath(
-        {
-          canvasId: POSTER_CANVAS_ID,
-          width: POSTER_WIDTH,
-          height: POSTER_HEIGHT,
-          destWidth: POSTER_WIDTH,
-          destHeight: POSTER_HEIGHT,
+  async canvasToPosterFilePath(retryCount) {
+    const canvas = this.posterCanvas;
+    if (!canvas) {
+      throw new Error("报告画布尚未准备好");
+    }
+    const attemptTotal = retryCount || 3;
+    let lastError = null;
+
+    for (let attempt = 0; attempt < attemptTotal; attempt += 1) {
+      try {
+        await wait(120 + attempt * 120);
+        const file = await withPromise(wx.canvasToTempFilePath, {
+          canvas,
+          x: 0,
+          y: 0,
+          width: canvas.width,
+          height: canvas.height,
+          destWidth: canvas.width,
+          destHeight: canvas.height,
           fileType: "png",
           quality: 1,
-          success: resolve,
-          fail: reject,
-        },
-        this,
-      );
-    });
+        });
+        if (file && file.tempFilePath) {
+          return file.tempFilePath;
+        }
+      } catch (error) {
+        lastError = error;
+        console.error("[aotd] poster export failed", {
+          attempt: attempt + 1,
+          errMsg: error && error.errMsg ? error.errMsg : "",
+          message: error && error.message ? error.message : "",
+        });
+      }
+    }
+
+    throw lastError || new Error("报告图导出失败");
   },
 
   drawPoster(ctx, poster) {
+    const scale = POSTER_SCALE;
+    const sx = (value) => value * scale;
+    const sy = (value) => value * scale;
     const title = stripPlaylistPrefix(poster.result.playlist.title);
     const subtitle = poster.result.shareCard && poster.result.shareCard.caption
       ? poster.result.shareCard.caption
@@ -711,130 +773,133 @@ Page({
       ? poster.result.shareCard.tags.slice(0, 3)
       : [];
 
+    ctx.clearRect(0, 0, POSTER_WIDTH, POSTER_HEIGHT);
     const bgGradient = ctx.createLinearGradient(0, 0, POSTER_WIDTH, POSTER_HEIGHT);
     bgGradient.addColorStop(0, "#fff8fb");
     bgGradient.addColorStop(0.45, "#f8e8ef");
     bgGradient.addColorStop(1, "#f1d6e1");
-    ctx.setFillStyle(bgGradient);
+    ctx.fillStyle = bgGradient;
     ctx.fillRect(0, 0, POSTER_WIDTH, POSTER_HEIGHT);
 
-    const halo = ctx.createRadialGradient(220, 200, 40, 220, 200, 460);
+    const halo = ctx.createRadialGradient(sx(220), sy(200), sx(40), sx(220), sy(200), sx(460));
     halo.addColorStop(0, "rgba(255,255,255,0.92)");
     halo.addColorStop(1, "rgba(255,255,255,0)");
-    ctx.setFillStyle(halo);
+    ctx.fillStyle = halo;
     ctx.fillRect(0, 0, POSTER_WIDTH, POSTER_HEIGHT);
 
-    ctx.setFillStyle("rgba(255,255,255,0.75)");
-    ctx.fillRect(78, 72, POSTER_WIDTH - 156, POSTER_HEIGHT - 144);
+    ctx.fillStyle = "rgba(255,255,255,0.75)";
+    ctx.fillRect(sx(78), sy(72), POSTER_WIDTH - sx(156), POSTER_HEIGHT - sy(144));
 
-    ctx.setFillStyle("#b86b88");
-    ctx.setFontSize(32);
-    ctx.fillText("AOTD REPORT", 120, 150);
+    ctx.fillStyle = "#b86b88";
+    ctx.font = `${Math.round(sx(32))}px sans-serif`;
+    ctx.fillText("AOTD REPORT", sx(120), sy(150));
 
-    ctx.setFillStyle("#5c3f4b");
-    ctx.setFontSize(72);
-    const nextY = wrapPosterText(ctx, title, 120, 250, POSTER_WIDTH - 240, 84, 2);
+    ctx.fillStyle = "#5c3f4b";
+    ctx.font = `${Math.round(sx(72))}px sans-serif`;
+    const nextY = wrapPosterText(ctx, title, sx(120), sy(250), POSTER_WIDTH - sx(240), sy(84), 2);
 
-    ctx.setFillStyle("rgba(92,63,75,0.72)");
-    ctx.setFontSize(28);
+    ctx.fillStyle = "rgba(92,63,75,0.72)";
+    ctx.font = `${Math.round(sx(28))}px sans-serif`;
     wrapPosterText(
       ctx,
       subtitle || "今晚这张唱片，把你此刻的情绪安放成 5 首歌。",
-      120,
-      nextY + 26,
-      POSTER_WIDTH - 240,
-      42,
+      sx(120),
+      nextY + sy(26),
+      POSTER_WIDTH - sx(240),
+      sy(42),
       3,
     );
 
-    const recordCenterX = 330;
-    const recordCenterY = 800;
-    const recordRadius = 220;
-    const recordGradient = ctx.createLinearGradient(110, 580, 550, 1020);
+    const recordCenterX = sx(330);
+    const recordCenterY = sy(800);
+    const recordRadius = sx(220);
+    const recordGradient = ctx.createLinearGradient(sx(110), sy(580), sx(550), sy(1020));
     recordGradient.addColorStop(0, "#2d2930");
     recordGradient.addColorStop(1, "#111015");
-    ctx.setFillStyle(recordGradient);
+    ctx.fillStyle = recordGradient;
     ctx.beginPath();
     ctx.arc(recordCenterX, recordCenterY, recordRadius, 0, Math.PI * 2);
     ctx.fill();
 
-    ctx.setStrokeStyle("rgba(255,255,255,0.08)");
+    ctx.strokeStyle = "rgba(255,255,255,0.08)";
+    ctx.lineWidth = Math.max(1, sx(2));
     for (let ring = 0; ring < 7; ring += 1) {
       ctx.beginPath();
-      ctx.arc(recordCenterX, recordCenterY, 60 + ring * 22, 0, Math.PI * 2);
+      ctx.arc(recordCenterX, recordCenterY, sx(60 + ring * 22), 0, Math.PI * 2);
       ctx.stroke();
     }
 
-    ctx.setFillStyle("#f5d6e1");
+    ctx.fillStyle = "#f5d6e1";
     ctx.beginPath();
-    ctx.arc(recordCenterX, recordCenterY, 88, 0, Math.PI * 2);
+    ctx.arc(recordCenterX, recordCenterY, sx(88), 0, Math.PI * 2);
     ctx.fill();
 
     if (poster.avatarPath) {
       ctx.save();
       ctx.beginPath();
-      ctx.arc(recordCenterX, recordCenterY, 52, 0, Math.PI * 2);
+      ctx.arc(recordCenterX, recordCenterY, sx(52), 0, Math.PI * 2);
       ctx.clip();
-      ctx.drawImage(poster.avatarPath, recordCenterX - 52, recordCenterY - 52, 104, 104);
+      ctx.drawImage(poster.avatarPath, recordCenterX - sx(52), recordCenterY - sx(52), sx(104), sx(104));
       ctx.restore();
     } else {
-      ctx.setFillStyle("#ffffff");
+      ctx.fillStyle = "#ffffff";
       ctx.beginPath();
-      ctx.arc(recordCenterX, recordCenterY, 28, 0, Math.PI * 2);
+      ctx.arc(recordCenterX, recordCenterY, sx(28), 0, Math.PI * 2);
       ctx.fill();
     }
 
-    ctx.setStrokeStyle("rgba(255,255,255,0.55)");
+    ctx.strokeStyle = "rgba(255,255,255,0.55)";
+    ctx.lineWidth = Math.max(1, sx(3));
     ctx.beginPath();
-    ctx.moveTo(460, 660);
-    ctx.lineTo(710, 560);
-    ctx.lineTo(758, 614);
+    ctx.moveTo(sx(460), sy(660));
+    ctx.lineTo(sx(710), sy(560));
+    ctx.lineTo(sx(758), sy(614));
     ctx.stroke();
     ctx.beginPath();
-    ctx.arc(742, 620, 34, 0, Math.PI * 2);
+    ctx.arc(sx(742), sy(620), sx(34), 0, Math.PI * 2);
     ctx.stroke();
 
-    ctx.setFillStyle("#5c3f4b");
-    ctx.setFontSize(24);
-    ctx.fillText(poster.nickname || FALLBACK_NICKNAME, 240, 810);
+    ctx.fillStyle = "#5c3f4b";
+    ctx.font = `${Math.round(sx(24))}px sans-serif`;
+    ctx.fillText(poster.nickname || FALLBACK_NICKNAME, sx(240), sy(810));
 
-    ctx.setFillStyle("#8f6071");
-    ctx.setFontSize(24);
+    ctx.fillStyle = "#8f6071";
+    ctx.font = `${Math.round(sx(24))}px sans-serif`;
     tags.forEach((tag, index) => {
-      const tagX = 120 + index * 168;
-      ctx.setFillStyle("rgba(255,255,255,0.78)");
-      ctx.fillRect(tagX, 1080, 140, 48);
-      ctx.setFillStyle("#8f6071");
-      ctx.fillText(tag, tagX + 20, 1112);
+      const tagX = sx(120 + index * 168);
+      ctx.fillStyle = "rgba(255,255,255,0.78)";
+      ctx.fillRect(tagX, sy(1080), sx(140), sy(48));
+      ctx.fillStyle = "#8f6071";
+      ctx.fillText(tag, tagX + sx(20), sy(1112));
     });
 
-    ctx.setFillStyle("#5c3f4b");
-    ctx.setFontSize(30);
-    ctx.fillText("Track List", 560, 690);
-    ctx.setFontSize(26);
-    ctx.setFillStyle("rgba(92,63,75,0.72)");
-    ctx.fillText("今晚唱片里的 5 首歌", 560, 730);
+    ctx.fillStyle = "#5c3f4b";
+    ctx.font = `${Math.round(sx(30))}px sans-serif`;
+    ctx.fillText("Track List", sx(560), sy(690));
+    ctx.font = `${Math.round(sx(26))}px sans-serif`;
+    ctx.fillStyle = "rgba(92,63,75,0.72)";
+    ctx.fillText("今晚唱片里的 5 首歌", sx(560), sy(730));
 
     poster.result.playlist.tracks.slice(0, 5).forEach((track, index) => {
-      const top = 790 + index * 128;
-      ctx.setFillStyle("rgba(255,255,255,0.68)");
-      ctx.fillRect(540, top - 34, 380, 92);
-      ctx.setFillStyle("#b86b88");
-      ctx.setFontSize(24);
-      ctx.fillText(`0${index + 1}`.slice(-2), 568, top);
-      ctx.setFillStyle("#4f3943");
-      ctx.setFontSize(30);
+      const top = sy(790 + index * 128);
+      ctx.fillStyle = "rgba(255,255,255,0.68)";
+      ctx.fillRect(sx(540), top - sy(34), sx(380), sy(92));
+      ctx.fillStyle = "#b86b88";
+      ctx.font = `${Math.round(sx(24))}px sans-serif`;
+      ctx.fillText(`0${index + 1}`.slice(-2), sx(568), top);
+      ctx.fillStyle = "#4f3943";
+      ctx.font = `${Math.round(sx(30))}px sans-serif`;
       const songTitle = track.song && track.song.title ? track.song.title : "未知曲目";
-      wrapPosterText(ctx, songTitle, 620, top - 8, 270, 34, 1);
-      ctx.setFillStyle("rgba(79,57,67,0.72)");
-      ctx.setFontSize(22);
+      wrapPosterText(ctx, songTitle, sx(620), top - sy(8), sx(270), sy(34), 1);
+      ctx.fillStyle = "rgba(79,57,67,0.72)";
+      ctx.font = `${Math.round(sx(22))}px sans-serif`;
       const artist = track.song && track.song.artist ? track.song.artist : "";
-      wrapPosterText(ctx, artist, 620, top + 28, 250, 30, 1);
+      wrapPosterText(ctx, artist, sx(620), top + sy(28), sx(250), sy(30), 1);
     });
 
-    ctx.setFillStyle("rgba(92,63,75,0.68)");
-    ctx.setFontSize(24);
-    ctx.fillText("保存这张报告图，去发给今晚想分享的人。", 120, 1440);
+    ctx.fillStyle = "rgba(92,63,75,0.68)";
+    ctx.font = `${Math.round(sx(24))}px sans-serif`;
+    ctx.fillText("保存这张报告图，把今晚这张唱片留住。", sx(120), sy(1440));
   },
 
   async ensurePosterImage() {
@@ -862,15 +927,14 @@ Page({
       });
 
       const avatarPath = await this.resolvePosterAvatarPath().catch(() => "");
-      const ctx = wx.createCanvasContext(POSTER_CANVAS_ID, this);
+      const posterCanvas = await this.ensurePosterCanvas();
+      const ctx = posterCanvas.ctx;
       this.drawPoster(ctx, {
         result,
         nickname: this.data.profileNickname,
         avatarPath,
       });
-      await new Promise((resolve) => ctx.draw(false, resolve));
-      const posterFile = await this.canvasToPosterFilePath();
-      const imagePath = posterFile && posterFile.tempFilePath ? posterFile.tempFilePath : "";
+      const imagePath = await this.canvasToPosterFilePath(3);
       this.posterCacheKey = posterCacheKey;
       this.setData({
         posterGenerating: false,
@@ -885,6 +949,10 @@ Page({
       return imagePath;
     })()
       .catch((error) => {
+        console.error("[aotd] poster generation failed", {
+          errMsg: error && error.errMsg ? error.errMsg : "",
+          message: error && error.message ? error.message : "",
+        });
         this.setData({
           posterGenerating: false,
         });
@@ -929,36 +997,10 @@ Page({
         });
         return;
       }
-      wx.showToast({
-        title: "保存失败，请重试",
-        icon: "none",
-      });
-    }
-  },
-
-  async handleSharePoster() {
-    try {
-      const posterPath = await this.ensurePosterImage();
-      if (!posterPath) {
-        throw new Error("报告图生成失败");
-      }
-      if (typeof wx.showShareImageMenu === "function") {
-        wx.showShareImageMenu({
-          path: posterPath,
-        });
-        trackUserEvent({
-          type: "poster_share_menu_opened",
-        }).catch(() => {});
-        return;
-      }
-      wx.showToast({
-        title: "当前版本不支持图片分享",
-        icon: "none",
-      });
-    } catch (error) {
-      wx.showToast({
-        title: "分享失败，请重试",
-        icon: "none",
+      wx.showModal({
+        title: "报告图生成失败",
+        content: message || "请重试一次，如果仍失败我再继续修这一条链路。",
+        showCancel: false,
       });
     }
   },
