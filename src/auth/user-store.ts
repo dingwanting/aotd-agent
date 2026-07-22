@@ -9,6 +9,7 @@ export interface UserRecord {
   userId: string;
   openid?: string;
   nickname: string;
+  avatarFileId?: string;
   createdAt: string;
   lastSeenAt: string;
   isAnonymous: boolean;

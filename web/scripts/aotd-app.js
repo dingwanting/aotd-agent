@@ -24,13 +24,8 @@ function computeProgress(answers) {
   return Math.round((count / ANSWER_KEYS.length) * 100);
 }
 
-function buildCoverTitle(rawTitle, nickname) {
-  const cleaned = String(rawTitle || "").replace(/^AOTD\s*\|\s*/i, "").trim();
-  const who = nickname && nickname !== FALLBACK_NICKNAME ? nickname : FALLBACK_NICKNAME;
-  if (!cleaned) {
-    return `${who}，今晚的歌单已经备好`;
-  }
-  return `${who}，${cleaned}`;
+function buildCoverTitle(rawTitle) {
+  return String(rawTitle || "").trim() || "AOTD|今晚的歌单已经备好";
 }
 
 function syncMemorySnapshot(memory) {
@@ -611,7 +606,7 @@ function buildPlayUrl(result) {
 function renderResultPage(result) {
   const primaryTrack = result.playlist?.tracks?.[0];
   const user = getCurrentUser();
-  setText("[data-role='cover-title']", buildCoverTitle(result.playlist.title, user.nickname));
+  setText("[data-role='cover-title']", buildCoverTitle(result.playlist.title));
   setText("[data-role='cover-subtitle']", result.playlist.subtitle);
   setText("[data-role='cover-duration']", `约 ${estimateDurationMinutes(result.playlist.tracks.length)} 分钟`);
   setText("[data-role='cover-count']", `${result.playlist.tracks.length} 首曲目`);

@@ -13,6 +13,7 @@ export interface UserProfileRecord {
   userId: string;
   openid?: string;
   nickname: string;
+  avatarFileId?: string;
   isAnonymous: boolean;
   createdAt: string;
   lastSeenAt: string;
@@ -45,6 +46,7 @@ interface UserStateRow extends RowDataPacket {
   user_id: string;
   openid: string | null;
   nickname: string;
+  avatar_file_id: string | null;
   is_anonymous: number;
   question_history_json: string;
   playlist_history_json: string;
@@ -129,6 +131,7 @@ function toProfile(row: UserStateRow): UserProfileRecord {
     userId: row.user_id,
     openid: row.openid || undefined,
     nickname: row.nickname || FALLBACK_NICKNAME,
+    avatarFileId: row.avatar_file_id || undefined,
     isAnonymous: Boolean(row.is_anonymous),
     createdAt: new Date(row.created_at).toISOString(),
     lastSeenAt: new Date(row.last_seen_at).toISOString(),
@@ -203,6 +206,7 @@ export class UserStateStore {
             user_id VARCHAR(64) PRIMARY KEY,
             openid VARCHAR(128) UNIQUE NULL,
             nickname VARCHAR(128) NOT NULL DEFAULT '朋友',
+            avatar_file_id VARCHAR(512) NULL,
             is_anonymous TINYINT(1) NOT NULL DEFAULT 1,
             question_history_json LONGTEXT NOT NULL,
             playlist_history_json LONGTEXT NOT NULL,
@@ -213,6 +217,12 @@ export class UserStateStore {
             last_seen_at DATETIME NOT NULL
           ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
         `);
+        const [avatarColumns] = await this.pool!.query<RowDataPacket[]>(
+          "SHOW COLUMNS FROM aotd_user_state LIKE 'avatar_file_id'",
+        );
+        if (!avatarColumns.length) {
+          await this.pool!.query("ALTER TABLE aotd_user_state ADD COLUMN avatar_file_id VARCHAR(512) NULL AFTER nickname");
+        }
       })();
     }
     await this.schemaReady;
@@ -252,13 +262,14 @@ export class UserStateStore {
     await this.pool.query(
       `
         INSERT INTO aotd_user_state (
-          user_id, openid, nickname, is_anonymous,
+          user_id, openid, nickname, avatar_file_id, is_anonymous,
           question_history_json, playlist_history_json, answer_history_json, event_log_json,
           created_at, updated_at, last_seen_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON DUPLICATE KEY UPDATE
           openid = VALUES(openid),
           nickname = VALUES(nickname),
+          avatar_file_id = VALUES(avatar_file_id),
           is_anonymous = VALUES(is_anonymous),
           updated_at = VALUES(updated_at),
           last_seen_at = VALUES(last_seen_at)
@@ -267,6 +278,7 @@ export class UserStateStore {
         profile.userId,
         profile.openid || null,
         profile.nickname || FALLBACK_NICKNAME,
+        profile.avatarFileId || null,
         profile.isAnonymous ? 1 : 0,
         JSON.stringify(memory.questionDeckHistory),
         JSON.stringify(memory.playlistHistory),
@@ -285,15 +297,25 @@ export class UserStateStore {
     await this.pool.query("UPDATE aotd_user_state SET last_seen_at = ?, updated_at = ? WHERE user_id = ?", [nowSql(), nowSql(), userId]);
   }
 
-  async updateNickname(userId: string, nickname: string): Promise<{ profile: UserProfileRecord; memory: UserMemorySnapshot } | null> {
-    if (!this.pool || !userId || !nickname) return this.findByUserId(userId);
+  async updateProfile(
+    userId: string,
+    patch: { nickname?: string; avatarFileId?: string | null },
+  ): Promise<{ profile: UserProfileRecord; memory: UserMemorySnapshot } | null> {
+    if (!this.pool || !userId) return this.findByUserId(userId);
     await this.ensureSchema();
-    await this.pool.query("UPDATE aotd_user_state SET nickname = ?, updated_at = ?, last_seen_at = ? WHERE user_id = ?", [
-      nickname,
-      nowSql(),
-      nowSql(),
-      userId,
-    ]);
+    const existing = await this.findByUserId(userId);
+    if (!existing) return null;
+
+    const nickname = patch.nickname && patch.nickname.trim() ? patch.nickname.trim() : existing.profile.nickname;
+    const avatarFileId =
+      patch.avatarFileId === undefined
+        ? existing.profile.avatarFileId || null
+        : patch.avatarFileId || null;
+
+    await this.pool.query(
+      "UPDATE aotd_user_state SET nickname = ?, avatar_file_id = ?, updated_at = ?, last_seen_at = ? WHERE user_id = ?",
+      [nickname, avatarFileId, nowSql(), nowSql(), userId],
+    );
     return this.findByUserId(userId);
   }
 

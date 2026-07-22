@@ -24,7 +24,7 @@ const USER_ID_COOKIE = "aotd_uid";
 
 // 部署版本指纹：每次代码改动必须 bump，方便从云托管日志确认跑的是哪个版本
 // 同时启动时打 dist 文件 hash + 文件 mtime + git HEAD，可以一眼看出"是否在跑新代码"
-const DEPLOY_VERSION = "aotd-2026-07-22-r8-memory-mysql-v1";
+const DEPLOY_VERSION = "aotd-2026-07-22-r9-avatar-poster-v1";
 
 const appEnv = loadEnv();
 
@@ -145,22 +145,35 @@ function readUser(req: HttpRequest): UserRecord | undefined {
 }
 
 function publicProfile(
-  record: Pick<UserRecord, "userId" | "nickname" | "isAnonymous"> | Pick<UserProfileRecord, "userId" | "nickname" | "isAnonymous"> | undefined,
-): { userId: string; nickname: string; isAnonymous: boolean } | null {
+  record:
+    | Pick<UserRecord, "userId" | "nickname" | "avatarFileId" | "isAnonymous">
+    | Pick<UserProfileRecord, "userId" | "nickname" | "avatarFileId" | "isAnonymous">
+    | undefined,
+): { userId: string; nickname: string; avatarFileId?: string; isAnonymous: boolean } | null {
   if (!record) return null;
   return {
     userId: record.userId,
     nickname: record.nickname,
+    avatarFileId: record.avatarFileId,
     isAnonymous: record.isAnonymous,
   };
 }
 
-async function ensurePersistedUser(userId: string, options?: { nickname?: string; isAnonymous?: boolean; openid?: string }): Promise<UserProfileRecord | null> {
+async function ensurePersistedUser(
+  userId: string,
+  options?: { nickname?: string; avatarFileId?: string; isAnonymous?: boolean; openid?: string },
+): Promise<UserProfileRecord | null> {
   if (!userId) return null;
   const existing = await userStateStore.findByUserId(userId);
   if (existing) {
-    if (options?.nickname && options.nickname !== existing.profile.nickname) {
-      const updated = await userStateStore.updateNickname(userId, options.nickname);
+    if (
+      (options?.nickname && options.nickname !== existing.profile.nickname) ||
+      (options?.avatarFileId !== undefined && options.avatarFileId !== existing.profile.avatarFileId)
+    ) {
+      const updated = await userStateStore.updateProfile(userId, {
+        nickname: options?.nickname,
+        avatarFileId: options?.avatarFileId,
+      });
       return updated?.profile || existing.profile;
     }
     await userStateStore.touchUser(userId);
@@ -171,6 +184,7 @@ async function ensurePersistedUser(userId: string, options?: { nickname?: string
     userId,
     openid: options?.openid,
     nickname: options?.nickname || "朋友",
+    avatarFileId: options?.avatarFileId,
     isAnonymous: options?.isAnonymous ?? !userId.startsWith("wx-"),
     createdAt: new Date().toISOString(),
     lastSeenAt: new Date().toISOString(),
@@ -191,9 +205,14 @@ async function handleAuthProfile(req: HttpRequest, res: HttpResponse) {
       sendJson(res, 400, { error: "Invalid JSON body" });
       return;
     }
-    const payload = body as { nickname?: string };
+    const payload = body as { nickname?: string; avatarFileId?: string };
     const nickname = typeof payload.nickname === "string" ? payload.nickname.trim() : "";
-    const profile = await ensurePersistedUser(userId, { nickname, isAnonymous: !userId.startsWith("wx-") });
+    const avatarFileId = typeof payload.avatarFileId === "string" ? payload.avatarFileId.trim() : "";
+    const profile = await ensurePersistedUser(userId, {
+      nickname,
+      avatarFileId: avatarFileId || undefined,
+      isAnonymous: !userId.startsWith("wx-"),
+    });
     const memory = await userStateStore.getMemory(userId);
     sendJson(res, 200, { ok: true, profile: publicProfile(profile || undefined), memory });
     return;

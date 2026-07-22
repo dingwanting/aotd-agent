@@ -15,31 +15,75 @@ const AUDIO_PREVIEW_BYTES = 256 * 1024;
 const AUDIO_FETCH_TIMEOUT_MS = 15000;
 const AUDIO_PLAY_START_TIMEOUT_MS = 10000;
 const FALLBACK_NICKNAME = "朋友";
+const POSTER_CANVAS_ID = "aotdPosterCanvas";
+const POSTER_WIDTH = 1080;
+const POSTER_HEIGHT = 1620;
 
-// 后端 playlist.title 形如 "AOTD|去探索一下咖啡店窗边"，前端去掉 "AOTD|"
-// 拼上昵称变成 "{nickname}，去探索一下咖啡店窗边"
-function buildCoverTitle(rawTitle, nickname) {
-  const cleaned = String(rawTitle || "").replace(/^AOTD\s*\|\s*/i, "").trim();
-  const who = nickname && nickname !== FALLBACK_NICKNAME ? nickname : FALLBACK_NICKNAME;
-  if (!cleaned) {
-    return `${who}，今晚的歌单已经备好`;
-  }
-  return `${who}，${cleaned}`;
+function normalizeCoverTitle(rawTitle) {
+  const title = String(rawTitle || "").trim();
+  return title || "AOTD|今晚的歌单已经备好";
 }
 
-function applyCoverTitle(result, nickname) {
+function applyCoverTitle(result) {
   if (!result || !result.playlist) {
     return result;
   }
   return Object.assign({}, result, {
     playlist: Object.assign({}, result.playlist, {
-      title: buildCoverTitle(result.playlist.title, nickname),
+      title: normalizeCoverTitle(result.playlist.title),
     }),
   });
 }
 
 function isFallbackNickname(nickname) {
   return !nickname || nickname === FALLBACK_NICKNAME;
+}
+
+function stripPlaylistPrefix(rawTitle) {
+  return String(rawTitle || "").replace(/^AOTD\s*\|\s*/i, "").trim() || "今晚的歌单";
+}
+
+function withPromise(api, options) {
+  return new Promise((resolve, reject) => {
+    api(
+      Object.assign({}, options, {
+        success: resolve,
+        fail: reject,
+      }),
+    );
+  });
+}
+
+function wrapPosterText(ctx, text, x, y, maxWidth, lineHeight, maxLines) {
+  const content = String(text || "").trim();
+  if (!content) {
+    return y;
+  }
+
+  let line = "";
+  let row = 0;
+  const chars = content.split("");
+  for (let index = 0; index < chars.length; index += 1) {
+    const testLine = line + chars[index];
+    const metrics = ctx.measureText(testLine);
+    if (metrics.width > maxWidth && line) {
+      row += 1;
+      const nextLine = row >= maxLines ? `${line.slice(0, Math.max(0, line.length - 1))}…` : line;
+      ctx.fillText(nextLine, x, y + lineHeight * (row - 1));
+      line = chars[index];
+      if (row >= maxLines) {
+        return y + lineHeight * row;
+      }
+    } else {
+      line = testLine;
+    }
+  }
+
+  if (line) {
+    row += 1;
+    ctx.fillText(line, x, y + lineHeight * (row - 1));
+  }
+  return y + lineHeight * row;
 }
 
 function getAnswers() {
@@ -328,12 +372,16 @@ Page({
     result: null,
     profileNickname: FALLBACK_NICKNAME,
     profileAvatarUrl: "",
+    profileAvatarFileId: "",
     copiedTrackIndex: -1,
     supportsInlineAudio: SUPPORT_INLINE_AUDIO,
     playingTrackIndex: -1,
     loadingTrackIndex: -1,
     audioRetryCount: 0,
-    showNicknameAuth: false
+    showNicknameAuth: false,
+    posterGenerating: false,
+    posterReady: false,
+    posterImagePath: ""
   },
 
   onShow() {
@@ -385,20 +433,24 @@ Page({
     }
 
     const nickname = getStorage(STORAGE_KEYS.nickname, FALLBACK_NICKNAME);
-    const avatarUrl = getStorage(STORAGE_KEYS.avatarUrl, "");
+    const avatarFileId = getStorage(STORAGE_KEYS.avatarFileId, "");
+    const avatarUrl = getStorage(STORAGE_KEYS.avatarUrl, "") || avatarFileId;
 
     const cached = loadResultIfMatched(answers);
     if (cached) {
       this.setData({
         loading: false,
         errorMessage: "",
-        result: applyCoverTitle(cached, nickname),
+        result: applyCoverTitle(cached),
         profileNickname: nickname,
         profileAvatarUrl: avatarUrl,
+        profileAvatarFileId: avatarFileId,
         copiedTrackIndex: -1,
         playingTrackIndex: -1,
         loadingTrackIndex: -1,
-        showNicknameAuth: isFallbackNickname(nickname)
+        showNicknameAuth: isFallbackNickname(nickname),
+        posterReady: false,
+        posterImagePath: ""
       });
       trackUserEvent({ type: "result_view_cached", answers }).catch(() => {});
       this.autoPlayTopTrack(cached);
@@ -415,13 +467,16 @@ Page({
       const result = await requestRecommendation(answers);
       this.setData({
         loading: false,
-        result: applyCoverTitle(result, nickname),
+        result: applyCoverTitle(result),
         profileNickname: nickname,
         profileAvatarUrl: avatarUrl,
+        profileAvatarFileId: avatarFileId,
         copiedTrackIndex: -1,
         playingTrackIndex: -1,
         loadingTrackIndex: -1,
-        showNicknameAuth: isFallbackNickname(nickname)
+        showNicknameAuth: isFallbackNickname(nickname),
+        posterReady: false,
+        posterImagePath: ""
       });
       trackUserEvent({ type: "result_view", answers }).catch(() => {});
       this.autoPlayTopTrack(result);
@@ -566,7 +621,7 @@ Page({
       const current = this.data.result;
       this.setData({
         showNicknameAuth: false,
-        result: applyCoverTitle(current, nickname)
+        result: applyCoverTitle(current)
       });
       trackUserEvent({ type: "nickname_authorized", nickname }).catch(() => {});
       wx.showToast({
@@ -581,6 +636,329 @@ Page({
       wx.showToast({
         title: "昵称授权失败",
         icon: "none"
+      });
+    }
+  },
+
+  buildPosterCacheKey() {
+    const result = this.data.result;
+    const tracks = result && result.playlist && Array.isArray(result.playlist.tracks) ? result.playlist.tracks : [];
+    return JSON.stringify({
+      title: result && result.playlist ? result.playlist.title : "",
+      subtitle: result && result.playlist ? result.playlist.subtitle : "",
+      tracks: tracks.map((track) => ({
+        rank: track.rank,
+        title: track.song && track.song.title,
+        artist: track.song && track.song.artist,
+      })),
+      nickname: this.data.profileNickname,
+      avatar: this.data.profileAvatarFileId || this.data.profileAvatarUrl || "",
+    });
+  },
+
+  async resolvePosterAvatarPath() {
+    const avatarSource = this.data.profileAvatarFileId || this.data.profileAvatarUrl;
+    if (!avatarSource) {
+      return "";
+    }
+    if (avatarSource.indexOf("cloud://") === 0) {
+      if (!wx.cloud || typeof wx.cloud.downloadFile !== "function") {
+        return "";
+      }
+      const downloaded = await withPromise(wx.cloud.downloadFile.bind(wx.cloud), {
+        fileID: avatarSource,
+      });
+      return downloaded && downloaded.tempFilePath ? downloaded.tempFilePath : "";
+    }
+    if (
+      avatarSource.indexOf("wxfile://") === 0 ||
+      avatarSource.indexOf(wx.env.USER_DATA_PATH) === 0 ||
+      avatarSource.indexOf("http://tmp/") === 0
+    ) {
+      return avatarSource;
+    }
+    const imageInfo = await withPromise(wx.getImageInfo, {
+      src: avatarSource,
+    });
+    return imageInfo && imageInfo.path ? imageInfo.path : "";
+  },
+
+  async canvasToPosterFilePath() {
+    return new Promise((resolve, reject) => {
+      wx.canvasToTempFilePath(
+        {
+          canvasId: POSTER_CANVAS_ID,
+          width: POSTER_WIDTH,
+          height: POSTER_HEIGHT,
+          destWidth: POSTER_WIDTH,
+          destHeight: POSTER_HEIGHT,
+          fileType: "png",
+          quality: 1,
+          success: resolve,
+          fail: reject,
+        },
+        this,
+      );
+    });
+  },
+
+  drawPoster(ctx, poster) {
+    const title = stripPlaylistPrefix(poster.result.playlist.title);
+    const subtitle = poster.result.shareCard && poster.result.shareCard.caption
+      ? poster.result.shareCard.caption
+      : poster.result.playlist.subtitle;
+    const tags = poster.result.shareCard && Array.isArray(poster.result.shareCard.tags)
+      ? poster.result.shareCard.tags.slice(0, 3)
+      : [];
+
+    const bgGradient = ctx.createLinearGradient(0, 0, POSTER_WIDTH, POSTER_HEIGHT);
+    bgGradient.addColorStop(0, "#fff8fb");
+    bgGradient.addColorStop(0.45, "#f8e8ef");
+    bgGradient.addColorStop(1, "#f1d6e1");
+    ctx.setFillStyle(bgGradient);
+    ctx.fillRect(0, 0, POSTER_WIDTH, POSTER_HEIGHT);
+
+    const halo = ctx.createRadialGradient(220, 200, 40, 220, 200, 460);
+    halo.addColorStop(0, "rgba(255,255,255,0.92)");
+    halo.addColorStop(1, "rgba(255,255,255,0)");
+    ctx.setFillStyle(halo);
+    ctx.fillRect(0, 0, POSTER_WIDTH, POSTER_HEIGHT);
+
+    ctx.setFillStyle("rgba(255,255,255,0.75)");
+    ctx.fillRect(78, 72, POSTER_WIDTH - 156, POSTER_HEIGHT - 144);
+
+    ctx.setFillStyle("#b86b88");
+    ctx.setFontSize(32);
+    ctx.fillText("AOTD REPORT", 120, 150);
+
+    ctx.setFillStyle("#5c3f4b");
+    ctx.setFontSize(72);
+    const nextY = wrapPosterText(ctx, title, 120, 250, POSTER_WIDTH - 240, 84, 2);
+
+    ctx.setFillStyle("rgba(92,63,75,0.72)");
+    ctx.setFontSize(28);
+    wrapPosterText(
+      ctx,
+      subtitle || "今晚这张唱片，把你此刻的情绪安放成 5 首歌。",
+      120,
+      nextY + 26,
+      POSTER_WIDTH - 240,
+      42,
+      3,
+    );
+
+    const recordCenterX = 330;
+    const recordCenterY = 800;
+    const recordRadius = 220;
+    const recordGradient = ctx.createLinearGradient(110, 580, 550, 1020);
+    recordGradient.addColorStop(0, "#2d2930");
+    recordGradient.addColorStop(1, "#111015");
+    ctx.setFillStyle(recordGradient);
+    ctx.beginPath();
+    ctx.arc(recordCenterX, recordCenterY, recordRadius, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.setStrokeStyle("rgba(255,255,255,0.08)");
+    for (let ring = 0; ring < 7; ring += 1) {
+      ctx.beginPath();
+      ctx.arc(recordCenterX, recordCenterY, 60 + ring * 22, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+
+    ctx.setFillStyle("#f5d6e1");
+    ctx.beginPath();
+    ctx.arc(recordCenterX, recordCenterY, 88, 0, Math.PI * 2);
+    ctx.fill();
+
+    if (poster.avatarPath) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(recordCenterX, recordCenterY, 52, 0, Math.PI * 2);
+      ctx.clip();
+      ctx.drawImage(poster.avatarPath, recordCenterX - 52, recordCenterY - 52, 104, 104);
+      ctx.restore();
+    } else {
+      ctx.setFillStyle("#ffffff");
+      ctx.beginPath();
+      ctx.arc(recordCenterX, recordCenterY, 28, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    ctx.setStrokeStyle("rgba(255,255,255,0.55)");
+    ctx.beginPath();
+    ctx.moveTo(460, 660);
+    ctx.lineTo(710, 560);
+    ctx.lineTo(758, 614);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(742, 620, 34, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.setFillStyle("#5c3f4b");
+    ctx.setFontSize(24);
+    ctx.fillText(poster.nickname || FALLBACK_NICKNAME, 240, 810);
+
+    ctx.setFillStyle("#8f6071");
+    ctx.setFontSize(24);
+    tags.forEach((tag, index) => {
+      const tagX = 120 + index * 168;
+      ctx.setFillStyle("rgba(255,255,255,0.78)");
+      ctx.fillRect(tagX, 1080, 140, 48);
+      ctx.setFillStyle("#8f6071");
+      ctx.fillText(tag, tagX + 20, 1112);
+    });
+
+    ctx.setFillStyle("#5c3f4b");
+    ctx.setFontSize(30);
+    ctx.fillText("Track List", 560, 690);
+    ctx.setFontSize(26);
+    ctx.setFillStyle("rgba(92,63,75,0.72)");
+    ctx.fillText("今晚唱片里的 5 首歌", 560, 730);
+
+    poster.result.playlist.tracks.slice(0, 5).forEach((track, index) => {
+      const top = 790 + index * 128;
+      ctx.setFillStyle("rgba(255,255,255,0.68)");
+      ctx.fillRect(540, top - 34, 380, 92);
+      ctx.setFillStyle("#b86b88");
+      ctx.setFontSize(24);
+      ctx.fillText(`0${index + 1}`.slice(-2), 568, top);
+      ctx.setFillStyle("#4f3943");
+      ctx.setFontSize(30);
+      const songTitle = track.song && track.song.title ? track.song.title : "未知曲目";
+      wrapPosterText(ctx, songTitle, 620, top - 8, 270, 34, 1);
+      ctx.setFillStyle("rgba(79,57,67,0.72)");
+      ctx.setFontSize(22);
+      const artist = track.song && track.song.artist ? track.song.artist : "";
+      wrapPosterText(ctx, artist, 620, top + 28, 250, 30, 1);
+    });
+
+    ctx.setFillStyle("rgba(92,63,75,0.68)");
+    ctx.setFontSize(24);
+    ctx.fillText("保存这张报告图，去发给今晚想分享的人。", 120, 1440);
+  },
+
+  async ensurePosterImage() {
+    const result = this.data.result;
+    if (!result || !result.playlist || !Array.isArray(result.playlist.tracks) || !result.playlist.tracks.length) {
+      throw new Error("还没有可生成的歌单");
+    }
+
+    const posterCacheKey = this.buildPosterCacheKey();
+    if (this.data.posterReady && this.data.posterImagePath && this.posterCacheKey === posterCacheKey) {
+      return this.data.posterImagePath;
+    }
+
+    if (this.posterPromise) {
+      return this.posterPromise;
+    }
+
+    this.posterPromise = (async () => {
+      this.setData({
+        posterGenerating: true,
+      });
+      wx.showLoading({
+        title: "正在生成报告",
+        mask: true,
+      });
+
+      const avatarPath = await this.resolvePosterAvatarPath().catch(() => "");
+      const ctx = wx.createCanvasContext(POSTER_CANVAS_ID, this);
+      this.drawPoster(ctx, {
+        result,
+        nickname: this.data.profileNickname,
+        avatarPath,
+      });
+      await new Promise((resolve) => ctx.draw(false, resolve));
+      const posterFile = await this.canvasToPosterFilePath();
+      const imagePath = posterFile && posterFile.tempFilePath ? posterFile.tempFilePath : "";
+      this.posterCacheKey = posterCacheKey;
+      this.setData({
+        posterGenerating: false,
+        posterReady: Boolean(imagePath),
+        posterImagePath: imagePath,
+      });
+      wx.hideLoading();
+      trackUserEvent({
+        type: "poster_generated",
+        title: result.playlist.title,
+      }).catch(() => {});
+      return imagePath;
+    })()
+      .catch((error) => {
+        this.setData({
+          posterGenerating: false,
+        });
+        wx.hideLoading();
+        throw error;
+      })
+      .finally(() => {
+        this.posterPromise = null;
+      });
+
+    return this.posterPromise;
+  },
+
+  async handleSavePoster() {
+    try {
+      const posterPath = await this.ensurePosterImage();
+      if (!posterPath) {
+        throw new Error("报告图生成失败");
+      }
+      await withPromise(wx.saveImageToPhotosAlbum, {
+        filePath: posterPath,
+      });
+      trackUserEvent({
+        type: "poster_saved",
+      }).catch(() => {});
+      wx.showToast({
+        title: "已保存到相册",
+        icon: "success",
+      });
+    } catch (error) {
+      const message = error && error.errMsg ? error.errMsg : error && error.message ? error.message : "";
+      if (message.indexOf("auth") >= 0 || message.indexOf("deny") >= 0) {
+        wx.showModal({
+          title: "需要相册权限",
+          content: "请允许保存到相册后，再次生成 AOTD 报告。",
+          confirmText: "去开启",
+          success: (modalRes) => {
+            if (modalRes.confirm) {
+              wx.openSetting({});
+            }
+          },
+        });
+        return;
+      }
+      wx.showToast({
+        title: "保存失败，请重试",
+        icon: "none",
+      });
+    }
+  },
+
+  async handleSharePoster() {
+    try {
+      const posterPath = await this.ensurePosterImage();
+      if (!posterPath) {
+        throw new Error("报告图生成失败");
+      }
+      if (typeof wx.showShareImageMenu === "function") {
+        wx.showShareImageMenu({
+          path: posterPath,
+        });
+        trackUserEvent({
+          type: "poster_share_menu_opened",
+        }).catch(() => {});
+        return;
+      }
+      wx.showToast({
+        title: "当前版本不支持图片分享",
+        icon: "none",
+      });
+    } catch (error) {
+      wx.showToast({
+        title: "分享失败，请重试",
+        icon: "none",
       });
     }
   },

@@ -81,7 +81,11 @@
     </view>
 
     <view class="actions">
+      <button class="action-primary" loading="{{posterGenerating}}" disabled="{{posterGenerating}}" bindtap="handleSavePoster">保存 AOTD 报告</button>
+      <button class="action-secondary" disabled="{{posterGenerating}}" bindtap="handleSharePoster">分享报告图</button>
       <button class="action-secondary" bindtap="handleRestart">重新回答</button>
     </view>
+
+    <canvas canvas-id="aotdPosterCanvas" class="poster-canvas"></canvas>
   </block>
 </view>

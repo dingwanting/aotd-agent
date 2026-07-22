@@ -11,6 +11,11 @@
     "backgroundColor": "#fff7fb",
     "backgroundTextStyle": "dark"
   },
+  "permission": {
+    "scope.writePhotosAlbum": {
+      "desc": "用于保存 AOTD 报告图到你的相册"
+    }
+  },
   "style": "v2",
   "sitemapLocation": "sitemap.json"
 }

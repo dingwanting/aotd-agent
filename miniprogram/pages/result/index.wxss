@@ -257,6 +257,17 @@
   margin-top: 28rpx;
 }
 
+.actions .action-primary,
 .actions .action-secondary {
   margin-top: 16rpx;
+}
+
+.poster-canvas {
+  position: fixed;
+  left: -9999rpx;
+  top: -9999rpx;
+  width: 1080px;
+  height: 1620px;
+  opacity: 0;
+  pointer-events: none;
 }

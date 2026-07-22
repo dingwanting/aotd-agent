@@ -26,6 +26,7 @@
           type="nickname"
           placeholder="输入你的微信昵称"
           value="{{nicknameDraft}}"
+          bindinput="handleNicknameInput"
           bindblur="handleNicknameBlur"
         />
 

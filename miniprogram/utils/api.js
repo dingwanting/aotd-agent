@@ -90,8 +90,23 @@ function persistProfilePayload(payload) {
   }
   setStorage(STORAGE_KEYS.userId, payload.profile.userId || "");
   setStorage(STORAGE_KEYS.nickname, payload.profile.nickname || "朋友");
+  setStorage(STORAGE_KEYS.avatarFileId, payload.profile.avatarFileId || "");
+  setStorage(STORAGE_KEYS.avatarUrl, payload.profile.avatarFileId || "");
   setStorage(STORAGE_KEYS.isAnonymous, Boolean(payload.profile.isAnonymous));
   syncMemorySnapshot(payload.memory);
+}
+
+function normalizeProfileInput(profileInput) {
+  if (typeof profileInput === "string") {
+    return {
+      nickname: profileInput,
+      avatarFileId: "",
+    };
+  }
+  return {
+    nickname: profileInput && typeof profileInput.nickname === "string" ? profileInput.nickname : "",
+    avatarFileId: profileInput && typeof profileInput.avatarFileId === "string" ? profileInput.avatarFileId : "",
+  };
 }
 
 function requestRecommendation(answers) {
@@ -339,14 +354,21 @@ function requestProfile() {
   });
 }
 
-function updateUserProfile(nickname) {
+function updateUserProfile(profileInput) {
   const userId = getStorage(STORAGE_KEYS.userId, "");
   const headers = { "content-type": "application/json" };
   if (userId) {
     headers["X-AOTD-User-Id"] = userId;
   }
   return new Promise((resolve, reject) => {
-    const data = { nickname };
+    const nextProfile = normalizeProfileInput(profileInput);
+    const data = {};
+    if (nextProfile.nickname) {
+      data.nickname = nextProfile.nickname;
+    }
+    if (nextProfile.avatarFileId) {
+      data.avatarFileId = nextProfile.avatarFileId;
+    }
     const handleSuccess = (response) => {
       if (response.statusCode >= 200 && response.statusCode < 300 && response.data && response.data.profile) {
         persistProfilePayload(response.data);
