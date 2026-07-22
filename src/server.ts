@@ -217,6 +217,7 @@ async function handleWxLogin(req: HttpRequest, res: HttpResponse) {
   );
 
   // 2) 没配 secret 或 code 失效：基于已有 userId 升级（如果有），否则发匿名
+  //    同时把诊断信息（errcode/errmsg）回给前端，方便排查 secret 配置问题
   const existing = readUser(req);
   if (existing) {
     if (nickname && nickname !== "朋友") {
@@ -227,6 +228,15 @@ async function handleWxLogin(req: HttpRequest, res: HttpResponse) {
       ok: true,
       profile: publicProfile(existing),
       fallback: "no-wx-session",
+      diagnostic: {
+        reason: exchange.failure.reason,
+        appIdSet: Boolean(appEnv.wxAppId),
+        secretSet: Boolean(appEnv.wxSecret),
+        codeLen: code.length,
+        errcode: exchange.failure.errcode,
+        errmsg: exchange.failure.errmsg,
+        httpStatus: exchange.failure.httpStatus,
+      },
     });
     return;
   }
@@ -238,6 +248,15 @@ async function handleWxLogin(req: HttpRequest, res: HttpResponse) {
     profile: publicProfile(created),
     fallback: "no-wx-session",
     issued: true,
+    diagnostic: {
+      reason: exchange.failure.reason,
+      appIdSet: Boolean(appEnv.wxAppId),
+      secretSet: Boolean(appEnv.wxSecret),
+      codeLen: code.length,
+      errcode: exchange.failure.errcode,
+      errmsg: exchange.failure.errmsg,
+      httpStatus: exchange.failure.httpStatus,
+    },
   });
 }
 

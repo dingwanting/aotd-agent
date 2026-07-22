@@ -57,7 +57,13 @@ App({
             setStorage(STORAGE_KEYS.userId, profile.userId || "");
             setStorage(STORAGE_KEYS.nickname, profile.nickname || "朋友");
             setStorage(STORAGE_KEYS.isAnonymous, Boolean(profile.isAnonymous));
-            console.log(`[aotd] login userId=${profile.userId} anon=${profile.isAnonymous} fallback=${payload.fallback || ""}`);
+            const diagnostic = payload.diagnostic;
+            console.log(
+              `[aotd] login userId=${profile.userId} anon=${profile.isAnonymous} fallback=${payload.fallback || ""}` +
+                (diagnostic
+                  ? ` diagnostic=${JSON.stringify(diagnostic)}`
+                  : ""),
+            );
           })
           .catch((error) => {
             console.warn("[aotd] wx-login failed:", error && error.message ? error.message : error);
