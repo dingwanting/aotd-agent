@@ -142,6 +142,18 @@ Page({
 
     try {
       wx.showLoading({
+        title: "正在同步身份",
+        mask: true,
+      });
+      const app = getApp ? getApp() : null;
+      const userId = app && typeof app.ensureUserSession === "function"
+        ? await app.ensureUserSession()
+        : getStorage(STORAGE_KEYS.userId, "");
+      if (!userId) {
+        throw new Error("登录态初始化失败，请重试一次");
+      }
+
+      wx.showLoading({
         title: "正在保存头像",
         mask: true,
       });

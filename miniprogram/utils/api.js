@@ -355,65 +355,79 @@ function requestProfile() {
 }
 
 function updateUserProfile(profileInput) {
-  const userId = getStorage(STORAGE_KEYS.userId, "");
-  const headers = { "content-type": "application/json" };
-  if (userId) {
-    headers["X-AOTD-User-Id"] = userId;
-  }
   return new Promise((resolve, reject) => {
-    const nextProfile = normalizeProfileInput(profileInput);
-    const data = {};
-    if (nextProfile.nickname) {
-      data.nickname = nextProfile.nickname;
-    }
-    if (nextProfile.avatarFileId) {
-      data.avatarFileId = nextProfile.avatarFileId;
-    }
-    const handleSuccess = (response) => {
-      if (response.statusCode >= 200 && response.statusCode < 300 && response.data && response.data.profile) {
-        persistProfilePayload(response.data);
-        resolve(response.data);
-        return;
-      }
-      reject(new Error((response.data && response.data.error) || "更新昵称失败"));
-    };
-
-    if (!USE_LOCAL_API && USE_CLOUD_CONTAINER) {
-      const serviceNames = Array.from(new Set([CLOUD_SERVICE_NAME].concat(CLOUD_SERVICE_FALLBACKS || []).filter(Boolean)));
-      const tryCall = (index) => {
-        const serviceName = serviceNames[index];
-        if (!serviceName) {
-          reject(new Error("无法连接到云托管服务"));
-          return;
+    Promise.resolve()
+      .then(() => {
+        const existingUserId = getStorage(STORAGE_KEYS.userId, "");
+        if (existingUserId) {
+          return existingUserId;
         }
-        wx.cloud.callContainer({
-          config: { env: CLOUD_ENV_ID },
-          path: "/api/auth/profile",
-          method: "POST",
-          header: Object.assign({ "X-WX-SERVICE": serviceName }, headers),
-          data,
-          success: handleSuccess,
-          fail: (error) => {
-            if (index < serviceNames.length - 1) {
-              tryCall(index + 1);
+        return requestProfile().then((payload) => {
+          const profile = payload && payload.profile ? payload.profile : null;
+          return profile && profile.userId ? profile.userId : "";
+        });
+      })
+      .then(() => {
+        const userId = getStorage(STORAGE_KEYS.userId, "");
+        const headers = { "content-type": "application/json" };
+        if (userId) {
+          headers["X-AOTD-User-Id"] = userId;
+        }
+        const nextProfile = normalizeProfileInput(profileInput);
+        const data = {};
+        if (nextProfile.nickname) {
+          data.nickname = nextProfile.nickname;
+        }
+        if (nextProfile.avatarFileId) {
+          data.avatarFileId = nextProfile.avatarFileId;
+        }
+        const handleSuccess = (response) => {
+          if (response.statusCode >= 200 && response.statusCode < 300 && response.data && response.data.profile) {
+            persistProfilePayload(response.data);
+            resolve(response.data);
+            return;
+          }
+          reject(new Error((response.data && response.data.error) || "更新昵称失败"));
+        };
+
+        if (!USE_LOCAL_API && USE_CLOUD_CONTAINER) {
+          const serviceNames = Array.from(new Set([CLOUD_SERVICE_NAME].concat(CLOUD_SERVICE_FALLBACKS || []).filter(Boolean)));
+          const tryCall = (index) => {
+            const serviceName = serviceNames[index];
+            if (!serviceName) {
+              reject(new Error("无法连接到云托管服务"));
               return;
             }
-            reject(new Error((error && error.errMsg) || "更新昵称失败"));
-          },
-        });
-      };
-      tryCall(0);
-      return;
-    }
+            wx.cloud.callContainer({
+              config: { env: CLOUD_ENV_ID },
+              path: "/api/auth/profile",
+              method: "POST",
+              header: Object.assign({ "X-WX-SERVICE": serviceName }, headers),
+              data,
+              success: handleSuccess,
+              fail: (error) => {
+                if (index < serviceNames.length - 1) {
+                  tryCall(index + 1);
+                  return;
+                }
+                reject(new Error((error && error.errMsg) || "更新昵称失败"));
+              },
+            });
+          };
+          tryCall(0);
+          return;
+        }
 
-    wx.request({
-      url: `${API_BASE_URL}/api/auth/profile`,
-      method: "POST",
-      header: headers,
-      data,
-      success: handleSuccess,
-      fail: (error) => reject(new Error((error && error.errMsg) || "更新昵称失败")),
-    });
+        wx.request({
+          url: `${API_BASE_URL}/api/auth/profile`,
+          method: "POST",
+          header: headers,
+          data,
+          success: handleSuccess,
+          fail: (error) => reject(new Error((error && error.errMsg) || "更新昵称失败")),
+        });
+      })
+      .catch(reject);
   });
 }
 
