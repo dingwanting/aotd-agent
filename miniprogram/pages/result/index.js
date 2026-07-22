@@ -1,5 +1,5 @@
 const { STORAGE_KEYS, getStorage, clearAnswers, clearQuestionDeck, clearResult } = require("../../utils/storage");
-const { requestRecommendation, loadResultIfMatched } = require("../../utils/api");
+const { requestRecommendation, loadResultIfMatched, updateUserProfile, trackUserEvent } = require("../../utils/api");
 const {
   API_BASE_URL,
   USE_CLOUD_CONTAINER,
@@ -36,6 +36,10 @@ function applyCoverTitle(result, nickname) {
       title: buildCoverTitle(result.playlist.title, nickname),
     }),
   });
+}
+
+function isFallbackNickname(nickname) {
+  return !nickname || nickname === FALLBACK_NICKNAME;
 }
 
 function getAnswers() {
@@ -326,7 +330,8 @@ Page({
     supportsInlineAudio: SUPPORT_INLINE_AUDIO,
     playingTrackIndex: -1,
     loadingTrackIndex: -1,
-    audioRetryCount: 0
+    audioRetryCount: 0,
+    showNicknameAuth: false
   },
 
   onShow() {
@@ -387,8 +392,10 @@ Page({
         result: applyCoverTitle(cached, nickname),
         copiedTrackIndex: -1,
         playingTrackIndex: -1,
-        loadingTrackIndex: -1
+        loadingTrackIndex: -1,
+        showNicknameAuth: isFallbackNickname(nickname)
       });
+      trackUserEvent({ type: "result_view_cached", answers }).catch(() => {});
       this.autoPlayTopTrack(cached);
       return;
     }
@@ -406,8 +413,10 @@ Page({
         result: applyCoverTitle(result, nickname),
         copiedTrackIndex: -1,
         playingTrackIndex: -1,
-        loadingTrackIndex: -1
+        loadingTrackIndex: -1,
+        showNicknameAuth: isFallbackNickname(nickname)
       });
+      trackUserEvent({ type: "result_view", answers }).catch(() => {});
       this.autoPlayTopTrack(result);
     } catch (error) {
       this.setData({
@@ -451,6 +460,7 @@ Page({
     clearAnswers();
     clearQuestionDeck();
     clearResult();
+    trackUserEvent({ type: "restart_questionnaire" }).catch(() => {});
     wx.redirectTo({
       url: "/pages/landing/index"
     });
@@ -471,6 +481,12 @@ Page({
         this.setData({
           copiedTrackIndex: Number(index)
         });
+        trackUserEvent({
+          type: "track_copy",
+          trackRank: track.rank,
+          title: track.song && track.song.title,
+          artist: track.song && track.song.artist
+        }).catch(() => {});
         wx.showModal({
           title: "已复制到剪贴板",
           content: `已复制“${keyword}”。打开网易云音乐后直接粘贴搜索，通常可以较快命中这首歌。`,
@@ -507,6 +523,59 @@ Page({
         }
       });
     }, 180);
+  },
+
+  async handleAuthorizeNickname() {
+    if (typeof wx.getUserProfile !== "function") {
+      wx.showToast({
+        title: "当前版本不支持昵称授权",
+        icon: "none"
+      });
+      return;
+    }
+
+    try {
+      const profile = await new Promise((resolve, reject) => {
+        wx.getUserProfile({
+          desc: "用于在歌单封面展示你的昵称",
+          success: resolve,
+          fail: reject
+        });
+      });
+      const nickname =
+        profile &&
+        profile.userInfo &&
+        typeof profile.userInfo.nickName === "string"
+          ? profile.userInfo.nickName.trim()
+          : "";
+      if (!nickname) {
+        wx.showToast({
+          title: "没有拿到昵称",
+          icon: "none"
+        });
+        return;
+      }
+      await updateUserProfile(nickname);
+      const current = this.data.result;
+      this.setData({
+        showNicknameAuth: false,
+        result: applyCoverTitle(current, nickname)
+      });
+      trackUserEvent({ type: "nickname_authorized", nickname }).catch(() => {});
+      wx.showToast({
+        title: "昵称已同步",
+        icon: "success"
+      });
+    } catch (error) {
+      const errMsg = error && error.errMsg ? error.errMsg : "";
+      if (errMsg.includes("cancel")) {
+        return;
+      }
+      wx.showToast({
+        title: "昵称授权失败",
+        icon: "none"
+      });
+    }
   },
 
   ensureAudioContext() {
@@ -754,6 +823,12 @@ Page({
       playingTrackIndex: -1,
       audioRetryCount: 0
     });
+    trackUserEvent({
+      type: "track_play",
+      trackRank: track.rank,
+      title: track.song && track.song.title,
+      artist: track.song && track.song.artist
+    }).catch(() => {});
 
     const song = track.song || {};
     audioContext.title = [song.title, song.artist].filter(Boolean).join(" - ") || "AOTD";

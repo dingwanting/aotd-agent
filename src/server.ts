@@ -12,6 +12,7 @@ import { resolveNeteaseAudio, resolveNeteaseTrackUrl } from "./integrations/nete
 import { loadEnv } from "./config/env.js";
 import { exchangeWxCodeForOpenId } from "./auth/wx-login.js";
 import { userStore, type UserRecord } from "./auth/user-store.js";
+import { userStateStore, type QuestionDeckIds, type UserProfileRecord } from "./persistence/user-state-store.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(__dirname, "..");
@@ -23,7 +24,7 @@ const USER_ID_COOKIE = "aotd_uid";
 
 // 部署版本指纹：每次代码改动必须 bump，方便从云托管日志确认跑的是哪个版本
 // 同时启动时打 dist 文件 hash + 文件 mtime + git HEAD，可以一眼看出"是否在跑新代码"
-const DEPLOY_VERSION = "aotd-2026-07-22-r7-wxlogin-cert-retry-v1";
+const DEPLOY_VERSION = "aotd-2026-07-22-r8-memory-mysql-v1";
 
 const appEnv = loadEnv();
 
@@ -87,8 +88,10 @@ function sendRedirect(res: HttpResponse, location: string, statusCode = 302) {
   res.end();
 }
 
-function handleHealth(res: HttpResponse) {
+async function handleHealth(res: HttpResponse) {
   const workbookPath = path.resolve(process.env.AOTD_WORKBOOK_PATH || "data/AOTD_500_Song_Library_Enhanced.xlsx");
+  const memoryEnabled = await userStateStore.isEnabled();
+  const userCount = memoryEnabled ? await userStateStore.countUsers() : userStore.getUserCount();
   sendJson(res, 200, {
     ok: true,
     service: "aotd-agent",
@@ -99,8 +102,9 @@ function handleHealth(res: HttpResponse) {
     workbookExists: fsSync.existsSync(workbookPath),
     auth: {
       mode: appEnv.wxAppId && appEnv.wxSecret ? "wx-code2session" : "anonymous-only",
-      userCount: userStore.getUserCount(),
+      userCount,
       wxConfigured: Boolean(appEnv.wxAppId && appEnv.wxSecret),
+      memoryEnabled,
     },
   });
 }
@@ -140,7 +144,9 @@ function readUser(req: HttpRequest): UserRecord | undefined {
   return userStore.get(userId);
 }
 
-function publicProfile(record: UserRecord | undefined): { userId: string; nickname: string; isAnonymous: boolean } | null {
+function publicProfile(
+  record: Pick<UserRecord, "userId" | "nickname" | "isAnonymous"> | Pick<UserProfileRecord, "userId" | "nickname" | "isAnonymous"> | undefined,
+): { userId: string; nickname: string; isAnonymous: boolean } | null {
   if (!record) return null;
   return {
     userId: record.userId,
@@ -149,18 +155,70 @@ function publicProfile(record: UserRecord | undefined): { userId: string; nickna
   };
 }
 
-async function handleAuthProfile(req: HttpRequest, res: HttpResponse) {
-  const existing = readUser(req);
+async function ensurePersistedUser(userId: string, options?: { nickname?: string; isAnonymous?: boolean; openid?: string }): Promise<UserProfileRecord | null> {
+  if (!userId) return null;
+  const existing = await userStateStore.findByUserId(userId);
   if (existing) {
-    userStore.touch(existing.userId);
-    sendJson(res, 200, { ok: true, profile: publicProfile(existing) });
+    if (options?.nickname && options.nickname !== existing.profile.nickname) {
+      const updated = await userStateStore.updateNickname(userId, options.nickname);
+      return updated?.profile || existing.profile;
+    }
+    await userStateStore.touchUser(userId);
+    return existing.profile;
+  }
+
+  const profile: UserProfileRecord = {
+    userId,
+    openid: options?.openid,
+    nickname: options?.nickname || "朋友",
+    isAnonymous: options?.isAnonymous ?? !userId.startsWith("wx-"),
+    createdAt: new Date().toISOString(),
+    lastSeenAt: new Date().toISOString(),
+  };
+  await userStateStore.saveUser(profile);
+  return profile;
+}
+
+async function handleAuthProfile(req: HttpRequest, res: HttpResponse) {
+  if (req.method === "POST") {
+    const userId = readUserIdFromRequest(req);
+    if (!userId) {
+      sendJson(res, 401, { error: "Missing user session" });
+      return;
+    }
+    const body = await readJsonBody(req);
+    if (!body || typeof body !== "object") {
+      sendJson(res, 400, { error: "Invalid JSON body" });
+      return;
+    }
+    const payload = body as { nickname?: string };
+    const nickname = typeof payload.nickname === "string" ? payload.nickname.trim() : "";
+    const profile = await ensurePersistedUser(userId, { nickname, isAnonymous: !userId.startsWith("wx-") });
+    const memory = await userStateStore.getMemory(userId);
+    sendJson(res, 200, { ok: true, profile: publicProfile(profile || undefined), memory });
+    return;
+  }
+
+  const userId = readUserIdFromRequest(req);
+  if (userId) {
+    const profile = await ensurePersistedUser(userId, { isAnonymous: !userId.startsWith("wx-") });
+    const memory = await userStateStore.getMemory(userId);
+    sendJson(res, 200, { ok: true, profile: publicProfile(profile || undefined), memory });
     return;
   }
 
   // 没 userId 的请求（首次访问）颁发一个匿名 userId 并 set-cookie
   const created = userStore.createAnonymous();
   setSessionCookie(res, created.userId);
-  sendJson(res, 200, { ok: true, profile: publicProfile(created), issued: true });
+  await userStateStore.saveUser({
+    userId: created.userId,
+    nickname: created.nickname,
+    isAnonymous: true,
+    createdAt: created.createdAt,
+    lastSeenAt: created.lastSeenAt,
+  });
+  const memory = await userStateStore.getMemory(created.userId);
+  sendJson(res, 200, { ok: true, profile: publicProfile(created), memory, issued: true });
 }
 
 async function readJsonBody(req: HttpRequest): Promise<unknown> {
@@ -196,12 +254,27 @@ async function handleWxLogin(req: HttpRequest, res: HttpResponse) {
   // 1) 优先尝试用 code 换 openid（需要 WX_APPID + WX_SECRET 配齐）
   const exchange = await exchangeWxCodeForOpenId(appEnv.wxAppId, appEnv.wxSecret, code);
   if (exchange.ok) {
-    const record = userStore.upsertByOpenid(exchange.data.openid, nickname);
-    setSessionCookie(res, record.userId);
+    const persisted = await userStateStore.findByOpenid(exchange.data.openid);
+    const record = persisted?.profile || {
+      ...userStore.upsertByOpenid(exchange.data.openid, nickname),
+      openid: exchange.data.openid,
+    };
+    const nextProfile: UserProfileRecord = {
+      userId: record.userId,
+      openid: exchange.data.openid,
+      nickname: nickname || record.nickname || "朋友",
+      isAnonymous: false,
+      createdAt: record.createdAt,
+      lastSeenAt: new Date().toISOString(),
+    };
+    await userStateStore.saveUser(nextProfile);
+    const memory = await userStateStore.getMemory(nextProfile.userId);
+    setSessionCookie(res, nextProfile.userId);
     sendJson(res, 200, {
       ok: true,
-      profile: publicProfile(record),
-      isNew: !exchange.data.unionid && record.createdAt === record.lastSeenAt,
+      profile: publicProfile(nextProfile),
+      memory,
+      isNew: !persisted,
     });
     return;
   }
@@ -218,15 +291,17 @@ async function handleWxLogin(req: HttpRequest, res: HttpResponse) {
 
   // 2) 没配 secret 或 code 失效：基于已有 userId 升级（如果有），否则发匿名
   //    同时把诊断信息（errcode/errmsg）回给前端，方便排查 secret 配置问题
-  const existing = readUser(req);
-  if (existing) {
-    if (nickname && nickname !== "朋友") {
-      existing.nickname = nickname;
-    }
-    userStore.touch(existing.userId);
+  const currentUserId = readUserIdFromRequest(req);
+  if (currentUserId) {
+    const existing = await ensurePersistedUser(currentUserId, {
+      nickname,
+      isAnonymous: !currentUserId.startsWith("wx-"),
+    });
+    const memory = await userStateStore.getMemory(currentUserId);
     sendJson(res, 200, {
       ok: true,
-      profile: publicProfile(existing),
+      profile: publicProfile(existing || undefined),
+      memory,
       fallback: "no-wx-session",
       diagnostic: {
         reason: exchange.failure.reason,
@@ -244,9 +319,18 @@ async function handleWxLogin(req: HttpRequest, res: HttpResponse) {
 
   const created = userStore.createAnonymous();
   setSessionCookie(res, created.userId);
+  await userStateStore.saveUser({
+    userId: created.userId,
+    nickname: created.nickname,
+    isAnonymous: true,
+    createdAt: created.createdAt,
+    lastSeenAt: created.lastSeenAt,
+  });
+  const memory = await userStateStore.getMemory(created.userId);
   sendJson(res, 200, {
     ok: true,
     profile: publicProfile(created),
+    memory,
     fallback: "no-wx-session",
     issued: true,
     diagnostic: {
@@ -314,6 +398,23 @@ function getRotationSeed(value: unknown): number | string | undefined {
   return undefined;
 }
 
+function getQuestionDeckIds(value: unknown): QuestionDeckIds | undefined {
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+  const payload = value as Record<string, unknown>;
+  const source = payload.questionDeckIds;
+  if (!source || typeof source !== "object") {
+    return undefined;
+  }
+  const raw = source as Record<string, unknown>;
+  return {
+    consumptionSource: typeof raw.consumptionSource === "string" ? raw.consumptionSource : undefined,
+    emotionalNeed: typeof raw.emotionalNeed === "string" ? raw.emotionalNeed : undefined,
+    emotionalImagery: typeof raw.emotionalImagery === "string" ? raw.emotionalImagery : undefined,
+  };
+}
+
 async function handleApi(req: HttpRequest, res: HttpResponse) {
   if (req.method !== "POST") {
     sendJson(res, 405, { error: "Method not allowed" });
@@ -336,23 +437,83 @@ async function handleApi(req: HttpRequest, res: HttpResponse) {
   }
 
   try {
+    const userId = readUserIdFromRequest(req);
+    const questionDeckIds = getQuestionDeckIds(payload);
+    const requestExcludeSongIds = getExcludeSongIds(payload);
+    const requestExcludeSongKeys = getExcludeSongKeys(payload);
+    let combinedExcludeSongIds = requestExcludeSongIds;
+    let combinedExcludeSongKeys = requestExcludeSongKeys;
+
+    if (userId) {
+      await ensurePersistedUser(userId, { isAnonymous: !userId.startsWith("wx-") });
+      const reused = await userStateStore.findCachedResult(userId, payload);
+      if (reused) {
+        const memory = await userStateStore.saveRecommendation({
+          userId,
+          answers: payload,
+          result: reused,
+          questionDeckIds,
+          reusedFromHistory: true,
+        });
+        await userStateStore.appendEvent(userId, {
+          type: "recommendation_reused",
+          answers: payload,
+        });
+        sendJson(res, 200, { ...reused, meta: { reusedFromHistory: true }, memory });
+        return;
+      }
+
+      const memoryExclusions = await userStateStore.getRecentExclusions(userId);
+      combinedExcludeSongIds = [...new Set(memoryExclusions.excludeSongIds.concat(requestExcludeSongIds))];
+      combinedExcludeSongKeys = [...new Set(memoryExclusions.excludeSongKeys.concat(requestExcludeSongKeys))];
+      console.log(`[aotd] user=${userId} answers=${JSON.stringify(payload)}`);
+    }
+
     const agent = new AotdAgent();
     const result = await agent.run(payload, {
-      excludeSongIds: getExcludeSongIds(payload),
-      excludeSongKeys: getExcludeSongKeys(payload),
+      excludeSongIds: combinedExcludeSongIds,
+      excludeSongKeys: combinedExcludeSongKeys,
       rotationSeed: getRotationSeed(payload),
     });
-    // 阶段 1：仅记录 userId 到启动日志，阶段 2 才用于按用户避重/缓存答案。
-    const user = readUser(req);
-    if (user) {
-      userStore.touch(user.userId);
-      console.log(`[aotd] user=${user.userId} answers=${JSON.stringify(payload)}`);
+    if (userId) {
+      const memory = await userStateStore.saveRecommendation({
+        userId,
+        answers: payload,
+        result,
+        questionDeckIds,
+      });
+      await userStateStore.appendEvent(userId, {
+        type: "recommendation_generated",
+        answers: payload,
+      });
+      sendJson(res, 200, { ...result, memory });
+      return;
     }
     sendJson(res, 200, result);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
     sendJson(res, 500, { error: message });
   }
+}
+
+async function handleUserEvents(req: HttpRequest, res: HttpResponse) {
+  if (req.method !== "POST") {
+    sendJson(res, 405, { error: "Method not allowed" });
+    return;
+  }
+  const userId = readUserIdFromRequest(req);
+  if (!userId) {
+    sendJson(res, 401, { error: "Missing user session" });
+    return;
+  }
+  const body = await readJsonBody(req);
+  if (!body || typeof body !== "object") {
+    sendJson(res, 400, { error: "Invalid JSON body" });
+    return;
+  }
+  await ensurePersistedUser(userId, { isAnonymous: !userId.startsWith("wx-") });
+  await userStateStore.appendEvent(userId, body as Record<string, unknown>);
+  sendJson(res, 200, { ok: true });
 }
 
 async function handleNeteasePlay(requestUrl: URL, res: HttpResponse) {
@@ -491,7 +652,7 @@ const server = createServer(async (req, res) => {
   }
 
   if (requestUrl.pathname === "/api/health") {
-    handleHealth(res);
+    await handleHealth(res);
     return;
   }
 
@@ -502,6 +663,11 @@ const server = createServer(async (req, res) => {
 
   if (requestUrl.pathname === "/api/auth/wx-login") {
     await handleWxLogin(req, res);
+    return;
+  }
+
+  if (requestUrl.pathname === "/api/user/events") {
+    await handleUserEvents(req, res);
     return;
   }
 

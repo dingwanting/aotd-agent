@@ -1,6 +1,6 @@
 const { CLOUD_ENV_ID, USE_CLOUD_CONTAINER } = require("./utils/config");
 const { STORAGE_KEYS, getStorage, setStorage, clearUser } = require("./utils/storage");
-const { requestWxLogin } = require("./utils/api");
+const { requestWxLogin, requestProfile } = require("./utils/api");
 
 App({
   onLaunch() {
@@ -76,7 +76,9 @@ App({
   },
 
   refreshProfile() {
-    // 阶段 1 占位：未来可拉一次 /api/auth/profile 拿最新 nickname
+    requestProfile().catch((error) => {
+      console.warn("[aotd] refresh profile failed:", error && error.message ? error.message : error);
+    });
   },
 
   globalData: {},

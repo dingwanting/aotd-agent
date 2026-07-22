@@ -7,6 +7,10 @@ export interface AppEnv {
   aotdWorkbookPath: string;
   wxAppId: string;
   wxSecret: string;
+  mysqlAddress: string;
+  mysqlUsername: string;
+  mysqlPassword: string;
+  mysqlDatabase: string;
 }
 
 export function loadEnv(): AppEnv {
@@ -24,5 +28,9 @@ export function loadEnv(): AppEnv {
     aotdWorkbookPath: workbookPath,
     wxAppId: process.env.WX_APPID || "",
     wxSecret: process.env.WX_SECRET || "",
+    mysqlAddress: process.env.MYSQL_ADDRESS || "",
+    mysqlUsername: process.env.MYSQL_USERNAME || "",
+    mysqlPassword: process.env.MYSQL_PASSWORD || "",
+    mysqlDatabase: process.env.MYSQL_DATABASE || "mysql",
   };
 }

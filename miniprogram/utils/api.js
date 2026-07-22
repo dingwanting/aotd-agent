@@ -72,6 +72,28 @@ function appendPlaylistHistory(result) {
   setStorage(STORAGE_KEYS.playlistHistory, deduped);
 }
 
+function syncMemorySnapshot(memory) {
+  if (!memory || typeof memory !== "object") {
+    return;
+  }
+  if (memory.questionDeckHistory) {
+    setStorage(STORAGE_KEYS.questionDeckHistory, memory.questionDeckHistory);
+  }
+  if (Array.isArray(memory.playlistHistory)) {
+    setStorage(STORAGE_KEYS.playlistHistory, memory.playlistHistory);
+  }
+}
+
+function persistProfilePayload(payload) {
+  if (!payload || !payload.profile) {
+    return;
+  }
+  setStorage(STORAGE_KEYS.userId, payload.profile.userId || "");
+  setStorage(STORAGE_KEYS.nickname, payload.profile.nickname || "朋友");
+  setStorage(STORAGE_KEYS.isAnonymous, Boolean(payload.profile.isAnonymous));
+  syncMemorySnapshot(payload.memory);
+}
+
 function requestRecommendation(answers) {
   const previousResult = getStorage(STORAGE_KEYS.result, null);
   const recentExclusions = collectRecentExclusions();
@@ -93,6 +115,16 @@ function requestRecommendation(answers) {
   return new Promise((resolve, reject) => {
     const data = {
       ...answers,
+      questionDeckIds: (() => {
+        const deck = getStorage(STORAGE_KEYS.questionDeck, null);
+        return deck
+          ? {
+              consumptionSource: deck.consumptionSource && deck.consumptionSource.deckId,
+              emotionalNeed: deck.emotionalNeed && deck.emotionalNeed.deckId,
+              emotionalImagery: deck.emotionalImagery && deck.emotionalImagery.deckId,
+            }
+          : undefined;
+      })(),
       excludeSongIds: Array.from(new Set(excludeSongIds)),
       excludeSongKeys: Array.from(new Set(excludeSongKeys)),
       rotationSeed: buildRotationSeed()
@@ -106,6 +138,7 @@ function requestRecommendation(answers) {
 
     const handleSuccess = (response) => {
       if (response.statusCode >= 200 && response.statusCode < 300) {
+        syncMemorySnapshot(response.data && response.data.memory);
         setStorage(STORAGE_KEYS.result, response.data);
         appendPlaylistHistory(response.data);
         resolve(response.data);
@@ -211,6 +244,7 @@ function requestWxLogin(code, nickname) {
           data,
           success: (response) => {
             if (response.statusCode >= 200 && response.statusCode < 300 && response.data && response.data.profile) {
+              persistProfilePayload(response.data);
               resolve(response.data);
               return;
             }
@@ -237,6 +271,7 @@ function requestWxLogin(code, nickname) {
       data,
       success: (response) => {
         if (response.statusCode >= 200 && response.statusCode < 300 && response.data && response.data.profile) {
+          persistProfilePayload(response.data);
           resolve(response.data);
           return;
         }
@@ -251,8 +286,166 @@ function requestWxLogin(code, nickname) {
   });
 }
 
+function requestProfile() {
+  const userId = getStorage(STORAGE_KEYS.userId, "");
+  const headers = {};
+  if (userId) {
+    headers["X-AOTD-User-Id"] = userId;
+  }
+  return new Promise((resolve, reject) => {
+    const handleSuccess = (response) => {
+      if (response.statusCode >= 200 && response.statusCode < 300 && response.data && response.data.profile) {
+        persistProfilePayload(response.data);
+        resolve(response.data);
+        return;
+      }
+      reject(new Error((response.data && response.data.error) || "获取登录态失败"));
+    };
+
+    if (!USE_LOCAL_API && USE_CLOUD_CONTAINER) {
+      const serviceNames = Array.from(new Set([CLOUD_SERVICE_NAME].concat(CLOUD_SERVICE_FALLBACKS || []).filter(Boolean)));
+      const tryCall = (index) => {
+        const serviceName = serviceNames[index];
+        if (!serviceName) {
+          reject(new Error("无法连接到云托管服务"));
+          return;
+        }
+        wx.cloud.callContainer({
+          config: { env: CLOUD_ENV_ID },
+          path: "/api/auth/profile",
+          method: "GET",
+          header: Object.assign({ "X-WX-SERVICE": serviceName }, headers),
+          success: handleSuccess,
+          fail: (error) => {
+            if (index < serviceNames.length - 1) {
+              tryCall(index + 1);
+              return;
+            }
+            reject(new Error((error && error.errMsg) || "获取登录态失败"));
+          },
+        });
+      };
+      tryCall(0);
+      return;
+    }
+
+    wx.request({
+      url: `${API_BASE_URL}/api/auth/profile`,
+      method: "GET",
+      header: headers,
+      success: handleSuccess,
+      fail: (error) => reject(new Error((error && error.errMsg) || "获取登录态失败")),
+    });
+  });
+}
+
+function updateUserProfile(nickname) {
+  const userId = getStorage(STORAGE_KEYS.userId, "");
+  const headers = { "content-type": "application/json" };
+  if (userId) {
+    headers["X-AOTD-User-Id"] = userId;
+  }
+  return new Promise((resolve, reject) => {
+    const data = { nickname };
+    const handleSuccess = (response) => {
+      if (response.statusCode >= 200 && response.statusCode < 300 && response.data && response.data.profile) {
+        persistProfilePayload(response.data);
+        resolve(response.data);
+        return;
+      }
+      reject(new Error((response.data && response.data.error) || "更新昵称失败"));
+    };
+
+    if (!USE_LOCAL_API && USE_CLOUD_CONTAINER) {
+      const serviceNames = Array.from(new Set([CLOUD_SERVICE_NAME].concat(CLOUD_SERVICE_FALLBACKS || []).filter(Boolean)));
+      const tryCall = (index) => {
+        const serviceName = serviceNames[index];
+        if (!serviceName) {
+          reject(new Error("无法连接到云托管服务"));
+          return;
+        }
+        wx.cloud.callContainer({
+          config: { env: CLOUD_ENV_ID },
+          path: "/api/auth/profile",
+          method: "POST",
+          header: Object.assign({ "X-WX-SERVICE": serviceName }, headers),
+          data,
+          success: handleSuccess,
+          fail: (error) => {
+            if (index < serviceNames.length - 1) {
+              tryCall(index + 1);
+              return;
+            }
+            reject(new Error((error && error.errMsg) || "更新昵称失败"));
+          },
+        });
+      };
+      tryCall(0);
+      return;
+    }
+
+    wx.request({
+      url: `${API_BASE_URL}/api/auth/profile`,
+      method: "POST",
+      header: headers,
+      data,
+      success: handleSuccess,
+      fail: (error) => reject(new Error((error && error.errMsg) || "更新昵称失败")),
+    });
+  });
+}
+
+function trackUserEvent(event) {
+  const userId = getStorage(STORAGE_KEYS.userId, "");
+  if (!userId) {
+    return Promise.resolve();
+  }
+  const headers = { "content-type": "application/json", "X-AOTD-User-Id": userId };
+  return new Promise((resolve) => {
+    const handleDone = () => resolve();
+    if (!USE_LOCAL_API && USE_CLOUD_CONTAINER) {
+      const serviceNames = Array.from(new Set([CLOUD_SERVICE_NAME].concat(CLOUD_SERVICE_FALLBACKS || []).filter(Boolean)));
+      const tryCall = (index) => {
+        const serviceName = serviceNames[index];
+        if (!serviceName) {
+          resolve();
+          return;
+        }
+        wx.cloud.callContainer({
+          config: { env: CLOUD_ENV_ID },
+          path: "/api/user/events",
+          method: "POST",
+          header: Object.assign({ "X-WX-SERVICE": serviceName }, headers),
+          data: event,
+          success: handleDone,
+          fail: () => {
+            if (index < serviceNames.length - 1) {
+              tryCall(index + 1);
+              return;
+            }
+            resolve();
+          },
+        });
+      };
+      tryCall(0);
+      return;
+    }
+    wx.request({
+      url: `${API_BASE_URL}/api/user/events`,
+      method: "POST",
+      header: headers,
+      data: event,
+      success: handleDone,
+      fail: handleDone,
+    });
+  });
+}
+
 module.exports = {
   requestRecommendation,
   loadResultIfMatched,
   requestWxLogin,
+  requestProfile,
+  updateUserProfile,
+  trackUserEvent,
 };

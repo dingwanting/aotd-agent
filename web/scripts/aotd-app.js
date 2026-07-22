@@ -33,6 +33,33 @@ function buildCoverTitle(rawTitle, nickname) {
   return `${who}，${cleaned}`;
 }
 
+function syncMemorySnapshot(memory) {
+  if (!memory) return;
+  try {
+    if (memory.questionDeckHistory) {
+      sessionStorage.setItem(STORAGE_KEYS.questionDeckHistory, JSON.stringify(memory.questionDeckHistory));
+    }
+    if (Array.isArray(memory.playlistHistory)) {
+      sessionStorage.setItem(STORAGE_KEYS.playlistHistory, JSON.stringify(memory.playlistHistory));
+    }
+  } catch {
+    // ignore
+  }
+}
+
+function persistProfilePayload(payload) {
+  const profile = payload && payload.profile ? payload.profile : null;
+  if (!profile) return null;
+  try {
+    sessionStorage.setItem(STORAGE_KEYS.userId, profile.userId || "");
+    sessionStorage.setItem(STORAGE_KEYS.nickname, profile.nickname || FALLBACK_NICKNAME);
+  } catch {
+    // ignore
+  }
+  syncMemorySnapshot(payload.memory);
+  return { userId: profile.userId || "", nickname: profile.nickname || FALLBACK_NICKNAME };
+}
+
 export async function bootstrapUser() {
   // 先看本地有没有 userId
   let userId = "";
@@ -59,15 +86,7 @@ export async function bootstrapUser() {
       return null;
     }
     const payload = await response.json();
-    const profile = payload && payload.profile ? payload.profile : null;
-    if (!profile) return null;
-    try {
-      sessionStorage.setItem(STORAGE_KEYS.userId, profile.userId || "");
-      sessionStorage.setItem(STORAGE_KEYS.nickname, profile.nickname || FALLBACK_NICKNAME);
-    } catch {
-      // ignore
-    }
-    return { userId: profile.userId, nickname: profile.nickname || FALLBACK_NICKNAME };
+    return persistProfilePayload(payload);
   } catch {
     return null;
   }
@@ -419,6 +438,16 @@ export async function requestRecommendation(answers) {
     credentials: "same-origin",
     body: JSON.stringify({
       ...answers,
+      questionDeckIds: (() => {
+        const deck = loadQuestionDeck();
+        return deck
+          ? {
+              consumptionSource: deck.consumptionSource?.deckId,
+              emotionalNeed: deck.emotionalNeed?.deckId,
+              emotionalImagery: deck.emotionalImagery?.deckId,
+            }
+          : undefined;
+      })(),
       excludeSongIds: [...new Set(excludeSongIds)],
       excludeSongKeys: [...new Set(excludeSongKeys)],
       rotationSeed: buildRotationSeed(),
@@ -430,6 +459,7 @@ export async function requestRecommendation(answers) {
     throw new Error(payload.error || "生成歌单失败");
   }
 
+  syncMemorySnapshot(payload.memory);
   saveResult(payload);
   appendPlaylistHistory(payload);
   return payload;
