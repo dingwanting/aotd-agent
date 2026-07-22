@@ -1,5 +1,9 @@
-// 调微信 jscode2session 换 openid
-// 失败时（如 secret 没配）返回 null，让调用方走 fallback
+import { request } from "node:https";
+import { lookup } from "node:dns";
+
+// 调微信 jscode2session 换 openid。
+// 这里不用 fetch，而是改用 https.request + IPv4，规避部分云容器里 undici/fetch
+// 对微信域名的 DNS/IPv6 兼容问题。
 
 export interface WxLoginResult {
   openid: string;
@@ -12,6 +16,7 @@ export interface WxLoginFailure {
   httpStatus?: number;
   errcode?: number;
   errmsg?: string;
+  errorCode?: string;
 }
 
 interface WxSessionResponse {
@@ -23,6 +28,42 @@ interface WxSessionResponse {
 }
 
 const WX_LOGIN_URL = "https://api.weixin.qq.com/sns/jscode2session";
+
+function requestJson(url: URL, timeoutMs: number): Promise<{ statusCode: number; body: string }> {
+  return new Promise((resolve, reject) => {
+    const req = request(
+      {
+        protocol: url.protocol,
+        hostname: url.hostname,
+        path: `${url.pathname}${url.search}`,
+        method: "GET",
+        timeout: timeoutMs,
+        family: 4,
+        lookup,
+      },
+      (res) => {
+        const chunks: Buffer[] = [];
+        res.on("data", (chunk) => {
+          chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+        });
+        res.on("end", () => {
+          resolve({
+            statusCode: res.statusCode || 0,
+            body: Buffer.concat(chunks).toString("utf-8"),
+          });
+        });
+      },
+    );
+
+    req.on("timeout", () => {
+      req.destroy(new Error("wx-login request timeout"));
+    });
+    req.on("error", (error) => {
+      reject(error);
+    });
+    req.end();
+  });
+}
 
 export async function exchangeWxCodeForOpenId(
   appId: string,
@@ -44,31 +85,30 @@ export async function exchangeWxCodeForOpenId(
     grant_type: "authorization_code",
   });
 
-  let response: Response;
+  let response: { statusCode: number; body: string };
   try {
-    response = await fetch(`${WX_LOGIN_URL}?${params.toString()}`, {
-      method: "GET",
-      signal: AbortSignal.timeout(timeoutMs),
-    });
+    response = await requestJson(new URL(`${WX_LOGIN_URL}?${params.toString()}`), timeoutMs);
   } catch (error) {
+    const err = error as NodeJS.ErrnoException;
     return {
       ok: false,
       failure: {
         reason: "network",
         errmsg: error instanceof Error ? error.message : String(error),
+        errorCode: err && typeof err.code === "string" ? err.code : undefined,
       },
     };
   }
 
-  if (!response.ok) {
-    return { ok: false, failure: { reason: "upstream-error", httpStatus: response.status } };
+  if (response.statusCode < 200 || response.statusCode >= 300) {
+    return { ok: false, failure: { reason: "upstream-error", httpStatus: response.statusCode } };
   }
 
   let payload: WxSessionResponse;
   try {
-    payload = (await response.json()) as WxSessionResponse;
+    payload = JSON.parse(response.body) as WxSessionResponse;
   } catch {
-    return { ok: false, failure: { reason: "upstream-error", httpStatus: response.status } };
+    return { ok: false, failure: { reason: "upstream-error", httpStatus: response.statusCode } };
   }
 
   if (!payload.openid) {
