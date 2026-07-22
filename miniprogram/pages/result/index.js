@@ -309,6 +309,8 @@ Page({
   onShow() {
     this.audioFilePromiseCache = this.audioFilePromiseCache || {};
     this.audioErrorLogs = this.audioErrorLogs || [];
+    this.autoAdvanceOnEnd = false;
+    this.autoAdvanceTimer = null;
     this.loadResult();
   },
 
@@ -316,6 +318,10 @@ Page({
     if (this.autoPlayTimer) {
       clearTimeout(this.autoPlayTimer);
       this.autoPlayTimer = null;
+    }
+    if (this.autoAdvanceTimer) {
+      clearTimeout(this.autoAdvanceTimer);
+      this.autoAdvanceTimer = null;
     }
     this.destroyAudio();
   },
@@ -325,8 +331,13 @@ Page({
       clearTimeout(this.autoPlayTimer);
       this.autoPlayTimer = null;
     }
+    if (this.autoAdvanceTimer) {
+      clearTimeout(this.autoAdvanceTimer);
+      this.autoAdvanceTimer = null;
+    }
     if (this.audioContext) {
       this.audioContext.stop();
+      this.autoAdvanceOnEnd = false;
       this.setData({
         playingTrackIndex: -1,
         loadingTrackIndex: -1
@@ -405,6 +416,11 @@ Page({
       clearTimeout(this.autoPlayTimer);
       this.autoPlayTimer = null;
     }
+    if (this.autoAdvanceTimer) {
+      clearTimeout(this.autoAdvanceTimer);
+      this.autoAdvanceTimer = null;
+    }
+    this.autoAdvanceOnEnd = false;
     this.destroyAudio();
     this.lastAutoPlaySignature = "";
     clearAnswers();
@@ -503,6 +519,8 @@ Page({
         clearTimeout(this.playStartWatchdogTimer);
         this.playStartWatchdogTimer = null;
       }
+      // 手动暂停、切歌、页面隐藏等都会触发 onStop —— 这种"非自然结束"不应该轮播
+      this.autoAdvanceOnEnd = false;
       this.setData({
         playingTrackIndex: -1,
         loadingTrackIndex: -1
@@ -514,6 +532,27 @@ Page({
         clearTimeout(this.playStartWatchdogTimer);
         this.playStartWatchdogTimer = null;
       }
+      const endedIndex = this.pendingTrackIndex;
+      const tracks = this.data.result && this.data.result.playlist ? this.data.result.playlist.tracks : [];
+      // 试听自然结束 -> 自动轮播到下一首；最后一首播完就停在原位
+      if (this.autoAdvanceOnEnd && endedIndex >= 0 && endedIndex < tracks.length - 1) {
+        this.autoAdvanceOnEnd = true;
+        this.setData({
+          playingTrackIndex: -1,
+          loadingTrackIndex: -1
+        });
+        // 短暂延后避免 onPlay/onEnded 事件链过近
+        this.autoAdvanceTimer = setTimeout(() => {
+          this.autoAdvanceTimer = null;
+          this.handlePlayTrack({
+            currentTarget: {
+              dataset: { index: endedIndex + 1 }
+            }
+          });
+        }, 320);
+        return;
+      }
+      this.autoAdvanceOnEnd = false;
       this.setData({
         playingTrackIndex: -1,
         loadingTrackIndex: -1
@@ -562,6 +601,11 @@ Page({
       clearTimeout(this.playStartWatchdogTimer);
       this.playStartWatchdogTimer = null;
     }
+    if (this.autoAdvanceTimer) {
+      clearTimeout(this.autoAdvanceTimer);
+      this.autoAdvanceTimer = null;
+    }
+    this.autoAdvanceOnEnd = false;
     if (this.audioContext) {
       this.audioContext.destroy();
       this.audioContext = null;
@@ -674,6 +718,8 @@ Page({
 
     this.pendingTrackIndex = numericIndex;
     this.pendingTrack = track;
+    // 每次开始播放都启用自动轮播：onEnded 时若仍是 true，就轮播到下一首
+    this.autoAdvanceOnEnd = true;
     if (this.playStartWatchdogTimer) {
       clearTimeout(this.playStartWatchdogTimer);
       this.playStartWatchdogTimer = null;

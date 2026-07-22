@@ -377,6 +377,18 @@ footer {
 .track strong {
   display: block;
 }
+.track-moodtag {
+  display: inline-block;
+  margin-top: 8px;
+  padding: 3px 12px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, rgba(229, 139, 168, 0.08) 0%, rgba(206, 116, 147, 0.05) 100%);
+  border: 1px solid rgba(229, 139, 168, 0.22);
+  color: #8f4d68;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  line-height: 1.5;
+}
 .cover-card {
   border-radius: 28px;
   box-shadow: 0 20px 36px var(--aotd-overlay);

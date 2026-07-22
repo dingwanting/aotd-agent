@@ -514,6 +514,7 @@ function renderResultPage(result) {
     trackList.innerHTML = result.playlist.tracks
       .map((track) => {
         const playMeta = buildTrackPlayMeta(track);
+        const moodTag = track.moodTag ? `<span class="track-moodtag">${escapeHtml(track.moodTag)}</span>` : "";
         return `
           <div class="track">
             <div class="track-main">
@@ -521,6 +522,7 @@ function renderResultPage(result) {
               <div class="track-copy">
                 <strong>${escapeHtml(track.song.title)}</strong>
                 <span>${escapeHtml(track.song.artist)}</span>
+                ${moodTag}
               </div>
             </div>
             <div class="track-actions">

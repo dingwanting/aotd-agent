@@ -63,6 +63,7 @@ export interface PlaylistEntry {
   song: SongDocument;
   reason: string;
   score: number;
+  moodTag: string;
 }
 
 export interface AotdAnalysis {

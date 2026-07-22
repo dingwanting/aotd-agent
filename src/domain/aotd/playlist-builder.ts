@@ -51,6 +51,59 @@ function buildTrackReason(candidate: RetrievalCandidate, plan: AotdPlan): string
   ]);
 }
 
+// 感受桶：把 plan 文本里的关键词映射到 7 个心境桶
+// 注意：只用"特异性"高的词，"继续 / 重新"等常见副词不能进 recharge 桶，否则"被看见继续留住"这种 happy plan 会被错分
+// 优先级：companion > release > recharge > celebrate > explore > stillness > warmth
+const FEELING_BUCKETS: ReadonlyArray<{ id: string; keywords: ReadonlyArray<string> }> = [
+  { id: "companion", keywords: ["陪伴", "有人陪", "被接住", "不孤单", "被理解", "靠岸", "陪一程", "被陪伴", "陪你", "身边"] },
+  { id: "release", keywords: ["放下", "排气", "透气", "松开", "不再撑", "软下来", "紧绷", "拉扯", "压力", "过载", "松一松", "缓一口", "透口气", "撑住", "扛住", "松弛"] },
+  { id: "recharge", keywords: ["蓄力", "回血", "充电", "重启", "重新出发", "重新上路", "脚踩实", "找回来", "再攒一攒", "满格", "电量"] },
+  { id: "celebrate", keywords: ["开心", "奖励", "庆祝", "被看见", "被认可", "发亮", "上头", "被认领", "上光", "发光", "上扬", "轻盈", "发光的", "好心情", "高光", "甜", "被夸"] },
+  { id: "explore", keywords: ["好奇", "探索", "新鲜", "试试", "打开", "走远", "看世界", "可能性", "再走一步", "出门", "新地方"] },
+  { id: "stillness", keywords: ["安静", "独处", "留白", "不打扰", "自己待", "停一停", "喘", "不被看见"] },
+  { id: "warmth", keywords: ["温暖", "安心", "暖意", "柔光", "柔", "刚刚好"] },
+];
+
+const FEELING_TAGS: Record<string, string[]> = {
+  companion: ["被温柔托住", "靠岸一会儿", "有人接着", "你不孤单", "陪一程再说", "被接住的"],
+  release: ["先把紧绷松开", "让空气软下来", "不再硬撑", "缓一口气", "情绪透透气", "先放一放"],
+  recharge: ["慢慢回来", "重新上路", "蓄力中", "脚踩实一点", "再攒一攒", "回到自己"],
+  celebrate: ["把这点开心放大", "轻盈上扬", "被认领的瞬间", "继续亮着", "我值得这束光", "好心情继续"],
+  explore: ["想去远一点", "好奇心还在", "把世界打开一点", "再走一步", "试试看", "新鲜感在敲门"],
+  stillness: ["安静才安全", "和我自己待一会儿", "不被打扰", "留一点空间", "停一停也好", "安静陪一程"],
+  warmth: ["被暖意包住", "温度刚刚好", "柔光一束", "你被接住了", "暖一点", "被温柔接住"],
+};
+
+function detectFeelingBucket(plan: AotdPlan): string {
+  const haystack = [
+    plan.consumptionSource,
+    plan.emotionalNeed,
+    plan.emotionalImagery,
+    plan.userIntent,
+    plan.todayStateSummary,
+    ...(plan.moodSignals || []),
+    ...(plan.objectiveSignals || []),
+    ...(plan.constraints || []),
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+
+  for (const bucket of FEELING_BUCKETS) {
+    if (bucket.keywords.some((keyword) => haystack.includes(keyword))) {
+      return bucket.id;
+    }
+  }
+  return "stillness";
+}
+
+function buildTrackMoodTag(candidate: RetrievalCandidate, plan: AotdPlan): string {
+  const bucket = detectFeelingBucket(plan);
+  const variants = FEELING_TAGS[bucket] || FEELING_TAGS.stillness;
+  // 同歌 + 同心境 = 同文案（确定性，便于用户"被认领"的感觉稳定）
+  return pickVariant(`${candidate.song.id}|${bucket}|mood`, variants);
+}
+
 function buildHitLine(plan: AotdPlan): string {
   const mood = plan.moodSignals[0] || plan.consumptionSource;
   const objective = plan.objectiveSignals[0] || plan.emotionalNeed;
@@ -75,6 +128,7 @@ export function buildAotdPlaylist(plan: AotdPlan, candidates: RetrievalCandidate
     song: candidate.song,
     reason: buildTrackReason(candidate, plan),
     score: candidate.score,
+    moodTag: buildTrackMoodTag(candidate, plan),
   }));
 
   return {
