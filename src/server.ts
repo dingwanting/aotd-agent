@@ -24,7 +24,7 @@ const USER_ID_COOKIE = "aotd_uid";
 
 // 部署版本指纹：每次代码改动必须 bump，方便从云托管日志确认跑的是哪个版本
 // 同时启动时打 dist 文件 hash + 文件 mtime + git HEAD，可以一眼看出"是否在跑新代码"
-const DEPLOY_VERSION = "aotd-2026-07-22-r9-avatar-poster-v1";
+const DEPLOY_VERSION = "aotd-2026-07-23-r10-health-guard-v1";
 
 const appEnv = loadEnv();
 
@@ -90,8 +90,20 @@ function sendRedirect(res: HttpResponse, location: string, statusCode = 302) {
 
 async function handleHealth(res: HttpResponse) {
   const workbookPath = path.resolve(process.env.AOTD_WORKBOOK_PATH || "data/AOTD_500_Song_Library_Enhanced.xlsx");
-  const memoryEnabled = await userStateStore.isEnabled();
-  const userCount = memoryEnabled ? await userStateStore.countUsers() : userStore.getUserCount();
+  let memoryEnabled = false;
+  let userCount = userStore.getUserCount();
+  let persistenceError = "";
+
+  try {
+    memoryEnabled = await userStateStore.isEnabled();
+    userCount = memoryEnabled ? await userStateStore.countUsers() : userStore.getUserCount();
+  } catch (error) {
+    memoryEnabled = false;
+    userCount = userStore.getUserCount();
+    persistenceError = error instanceof Error ? error.message : "user persistence unavailable";
+    console.error("[health] persistence check failed", error);
+  }
+
   sendJson(res, 200, {
     ok: true,
     service: "aotd-agent",
@@ -105,6 +117,7 @@ async function handleHealth(res: HttpResponse) {
       userCount,
       wxConfigured: Boolean(appEnv.wxAppId && appEnv.wxSecret),
       memoryEnabled,
+      persistenceError,
     },
   });
 }
@@ -663,49 +676,61 @@ async function handleStatic(urlPath: string, res: HttpResponse) {
 }
 
 const server = createServer(async (req, res) => {
-  const requestUrl = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
+  try {
+    const requestUrl = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
 
-  if (requestUrl.pathname === "/api/aotd/recommendation") {
-    await handleApi(req, res);
-    return;
+    if (requestUrl.pathname === "/api/aotd/recommendation") {
+      await handleApi(req, res);
+      return;
+    }
+
+    if (requestUrl.pathname === "/api/health") {
+      await handleHealth(res);
+      return;
+    }
+
+    if (requestUrl.pathname === "/api/auth/profile") {
+      await handleAuthProfile(req, res);
+      return;
+    }
+
+    if (requestUrl.pathname === "/api/auth/wx-login") {
+      await handleWxLogin(req, res);
+      return;
+    }
+
+    if (requestUrl.pathname === "/api/user/events") {
+      await handleUserEvents(req, res);
+      return;
+    }
+
+    if (requestUrl.pathname === "/api/netease/play") {
+      await handleNeteasePlay(requestUrl, res);
+      return;
+    }
+
+    if (requestUrl.pathname === "/api/netease/audio/resolve") {
+      await handleNeteaseAudioResolve(requestUrl, res);
+      return;
+    }
+
+    if (requestUrl.pathname === "/api/netease/audio/stream") {
+      await handleNeteaseAudioStream(req, requestUrl, res);
+      return;
+    }
+
+    await handleStatic(requestUrl.pathname, res);
+  } catch (error) {
+    console.error("[server] request failed", error);
+    if (!res.headersSent) {
+      sendJson(res, 500, {
+        ok: false,
+        error: error instanceof Error ? error.message : "Internal Server Error",
+      });
+      return;
+    }
+    res.end();
   }
-
-  if (requestUrl.pathname === "/api/health") {
-    await handleHealth(res);
-    return;
-  }
-
-  if (requestUrl.pathname === "/api/auth/profile") {
-    await handleAuthProfile(req, res);
-    return;
-  }
-
-  if (requestUrl.pathname === "/api/auth/wx-login") {
-    await handleWxLogin(req, res);
-    return;
-  }
-
-  if (requestUrl.pathname === "/api/user/events") {
-    await handleUserEvents(req, res);
-    return;
-  }
-
-  if (requestUrl.pathname === "/api/netease/play") {
-    await handleNeteasePlay(requestUrl, res);
-    return;
-  }
-
-  if (requestUrl.pathname === "/api/netease/audio/resolve") {
-    await handleNeteaseAudioResolve(requestUrl, res);
-    return;
-  }
-
-  if (requestUrl.pathname === "/api/netease/audio/stream") {
-    await handleNeteaseAudioStream(req, requestUrl, res);
-    return;
-  }
-
-  await handleStatic(requestUrl.pathname, res);
 });
 
 server.listen(port, () => {
