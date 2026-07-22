@@ -59,6 +59,24 @@ function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function buildPosterProfileLabel(nickname) {
+  const safeName = nickname && nickname !== FALLBACK_NICKNAME ? nickname : FALLBACK_NICKNAME;
+  return `${safeName} 的 AOTD`;
+}
+
+function buildPosterShortCopy(result) {
+  const shareCard = result && result.shareCard ? result.shareCard : null;
+  const tags = shareCard && Array.isArray(shareCard.tags) ? shareCard.tags.filter(Boolean) : [];
+  const fromState = tags[0] || "今天这会儿";
+  const toNeed = tags[1] || "缓一缓";
+  const scene = tags[2] || "今晚";
+  return {
+    kicker: `${fromState}的时候，先听这 5 首。`,
+    subline: `想${toNeed}一点，就放在${scene}里听。`,
+    footer: `这 5 首，留给现在的你。`,
+  };
+}
+
 function wrapPosterText(ctx, text, x, y, maxWidth, lineHeight, maxLines) {
   const content = String(text || "").trim();
   if (!content) {
@@ -783,9 +801,8 @@ Page({
     const sx = (value) => value * scale;
     const sy = (value) => value * scale;
     const title = stripPlaylistPrefix(poster.result.playlist.title);
-    const subtitle = poster.result.shareCard && poster.result.shareCard.caption
-      ? poster.result.shareCard.caption
-      : poster.result.playlist.subtitle;
+    const posterCopy = buildPosterShortCopy(poster.result);
+    const profileLabel = buildPosterProfileLabel(poster.nickname);
     const tags = poster.result.shareCard && Array.isArray(poster.result.shareCard.tags)
       ? poster.result.shareCard.tags.slice(0, 3)
       : [];
@@ -807,24 +824,50 @@ Page({
     ctx.fillStyle = "rgba(255,255,255,0.75)";
     ctx.fillRect(sx(78), sy(72), POSTER_WIDTH - sx(156), POSTER_HEIGHT - sy(144));
 
-    ctx.fillStyle = "#b86b88";
-    ctx.font = `${Math.round(sx(32))}px sans-serif`;
-    ctx.fillText("AOTD REPORT", sx(120), sy(150));
+    ctx.fillStyle = "rgba(255,255,255,0.92)";
+    ctx.fillRect(sx(120), sy(112), sx(240), sy(76));
+
+    if (poster.avatarImage) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(sx(156), sy(150), sx(24), 0, Math.PI * 2);
+      ctx.clip();
+      ctx.drawImage(poster.avatarImage, sx(132), sy(126), sx(48), sy(48));
+      ctx.restore();
+    } else {
+      ctx.fillStyle = "#f3d6e1";
+      ctx.beginPath();
+      ctx.arc(sx(156), sy(150), sx(24), 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    ctx.fillStyle = "#8f6071";
+    ctx.font = `${Math.round(sx(24))}px sans-serif`;
+    ctx.fillText(profileLabel, sx(194), sy(158));
 
     ctx.fillStyle = "#5c3f4b";
     ctx.font = `${Math.round(sx(72))}px sans-serif`;
-    const nextY = wrapPosterText(ctx, title, sx(120), sy(250), POSTER_WIDTH - sx(240), sy(84), 2);
+    const nextY = wrapPosterText(ctx, title, sx(120), sy(258), POSTER_WIDTH - sx(240), sy(84), 2);
 
     ctx.fillStyle = "rgba(92,63,75,0.72)";
     ctx.font = `${Math.round(sx(28))}px sans-serif`;
     wrapPosterText(
       ctx,
-      subtitle || "今晚这张唱片，把你此刻的情绪安放成 5 首歌。",
+      posterCopy.kicker,
       sx(120),
       nextY + sy(26),
       POSTER_WIDTH - sx(240),
       sy(42),
-      3,
+      2,
+    );
+    wrapPosterText(
+      ctx,
+      posterCopy.subline,
+      sx(120),
+      nextY + sy(94),
+      POSTER_WIDTH - sx(240),
+      sy(38),
+      2,
     );
 
     const recordCenterX = sx(330);
@@ -916,7 +959,7 @@ Page({
 
     ctx.fillStyle = "rgba(92,63,75,0.68)";
     ctx.font = `${Math.round(sx(24))}px sans-serif`;
-    ctx.fillText("保存这张报告图，把今晚这张唱片留住。", sx(120), sy(1440));
+    ctx.fillText(posterCopy.footer, sx(120), sy(1440));
   },
 
   async ensurePosterImage() {
