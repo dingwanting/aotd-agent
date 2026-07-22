@@ -3,4 +3,36 @@
     <image class="hero-image" src="/assets/landing/hero-entry-final.jpg" mode="widthFix"></image>
     <button class="start-hit-area" bindtap="handleStart">开始陪伴</button>
   </view>
+
+  <view wx:if="{{showProfileSheet}}" class="profile-mask" catchtouchmove="noop">
+    <view class="profile-sheet">
+      <view class="profile-sheet__header">
+        <view>
+          <view class="profile-sheet__title">先补一下面孔和名字</view>
+          <view class="profile-sheet__hint">完成后再进入今晚的陪伴流程</view>
+        </view>
+        <view class="profile-sheet__close" bindtap="handleCloseProfileSheet">稍后</view>
+      </view>
+
+      <form bindsubmit="handleProfileSubmit">
+        <button class="avatar-picker" open-type="chooseAvatar" bindchooseavatar="handleChooseAvatar">
+          <image class="avatar-picker__image" src="{{avatarUrl}}" mode="aspectFill"></image>
+          <view class="avatar-picker__copy">点一下，选你的头像</view>
+        </button>
+
+        <input
+          class="nickname-input"
+          name="nickname"
+          type="nickname"
+          placeholder="输入你的微信昵称"
+          value="{{nicknameDraft}}"
+          bindblur="handleNicknameBlur"
+        />
+
+        <button class="profile-submit {{canSubmitProfile ? 'profile-submit--active' : ''}}" form-type="submit">
+          开始陪伴
+        </button>
+      </form>
+    </view>
+  </view>
 </view>

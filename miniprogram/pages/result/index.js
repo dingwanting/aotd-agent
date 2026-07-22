@@ -326,6 +326,8 @@ Page({
     loading: true,
     errorMessage: "",
     result: null,
+    profileNickname: FALLBACK_NICKNAME,
+    profileAvatarUrl: "",
     copiedTrackIndex: -1,
     supportsInlineAudio: SUPPORT_INLINE_AUDIO,
     playingTrackIndex: -1,
@@ -383,6 +385,7 @@ Page({
     }
 
     const nickname = getStorage(STORAGE_KEYS.nickname, FALLBACK_NICKNAME);
+    const avatarUrl = getStorage(STORAGE_KEYS.avatarUrl, "");
 
     const cached = loadResultIfMatched(answers);
     if (cached) {
@@ -390,6 +393,8 @@ Page({
         loading: false,
         errorMessage: "",
         result: applyCoverTitle(cached, nickname),
+        profileNickname: nickname,
+        profileAvatarUrl: avatarUrl,
         copiedTrackIndex: -1,
         playingTrackIndex: -1,
         loadingTrackIndex: -1,
@@ -411,6 +416,8 @@ Page({
       this.setData({
         loading: false,
         result: applyCoverTitle(result, nickname),
+        profileNickname: nickname,
+        profileAvatarUrl: avatarUrl,
         copiedTrackIndex: -1,
         playingTrackIndex: -1,
         loadingTrackIndex: -1,

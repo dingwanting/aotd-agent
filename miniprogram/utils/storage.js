@@ -6,6 +6,7 @@ const STORAGE_KEYS = {
   playlistHistory: "aotd.playlistHistory",
   userId: "aotd.userId",
   nickname: "aotd.nickname",
+  avatarUrl: "aotd.avatarUrl",
   isAnonymous: "aotd.isAnonymous",
 };
 
@@ -55,6 +56,11 @@ function clearUser() {
   }
   try {
     wx.removeStorageSync(STORAGE_KEYS.nickname);
+  } catch {
+    // ignore
+  }
+  try {
+    wx.removeStorageSync(STORAGE_KEYS.avatarUrl);
   } catch {
     // ignore
   }

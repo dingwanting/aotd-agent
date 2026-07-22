@@ -38,6 +38,121 @@
   border: none;
 }
 
+.profile-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 32rpx;
+  background: rgba(49, 31, 40, 0.48);
+}
+
+.profile-sheet {
+  width: 100%;
+  padding: 34rpx 30rpx 38rpx;
+  border-radius: 38rpx;
+  background: linear-gradient(180deg, rgba(255, 251, 252, 0.98) 0%, rgba(249, 235, 240, 0.98) 100%);
+  box-shadow: 0 24rpx 56rpx rgba(141, 87, 109, 0.16);
+}
+
+.profile-sheet__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24rpx;
+}
+
+.profile-sheet__title {
+  font-size: 36rpx;
+  font-weight: 600;
+  line-height: 1.25;
+  color: #4b3740;
+}
+
+.profile-sheet__hint {
+  margin-top: 10rpx;
+  font-size: 24rpx;
+  line-height: 1.55;
+  color: rgba(90, 67, 76, 0.74);
+}
+
+.profile-sheet__close {
+  padding: 8rpx 18rpx;
+  border-radius: 999rpx;
+  background: rgba(255, 255, 255, 0.74);
+  color: #a0647b;
+  font-size: 22rpx;
+  white-space: nowrap;
+}
+
+.avatar-picker {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18rpx;
+  margin-top: 32rpx;
+  padding: 0;
+  border: none;
+  background: transparent;
+}
+
+.avatar-picker::after {
+  border: none;
+}
+
+.avatar-picker__image {
+  width: 148rpx;
+  height: 148rpx;
+  border-radius: 999rpx;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.74);
+  box-shadow: 0 12rpx 30rpx rgba(220, 146, 174, 0.18);
+}
+
+.avatar-picker__copy {
+  font-size: 24rpx;
+  color: #9a6278;
+}
+
+.nickname-input {
+  margin-top: 28rpx;
+  width: 100%;
+  height: 92rpx;
+  padding: 0 28rpx;
+  border-radius: 24rpx;
+  background: rgba(255, 255, 255, 0.86);
+  border: 1rpx solid rgba(229, 139, 168, 0.22);
+  color: #4b3740;
+  font-size: 28rpx;
+  box-sizing: border-box;
+}
+
+.profile-submit {
+  margin-top: 28rpx;
+  width: 100%;
+  height: 92rpx;
+  line-height: 92rpx;
+  padding: 0;
+  border-radius: 999rpx;
+  border: none;
+  background: rgba(229, 139, 168, 0.26);
+  color: rgba(95, 57, 72, 0.82);
+  font-size: 28rpx;
+  font-weight: 600;
+}
+
+.profile-submit--active {
+  background: linear-gradient(135deg, #e58ba8 0%, #ce7493 100%);
+  color: #ffffff;
+  box-shadow: 0 16rpx 32rpx rgba(229, 139, 168, 0.24);
+}
+
+.profile-submit::after {
+  border: none;
+}
+
 @media (max-width: 720rpx) {
   .start-hit-area {
     left: calc(54.7% - 15px);

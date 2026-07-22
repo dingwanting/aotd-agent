@@ -22,9 +22,15 @@
           <text class="cover-badge">AOTD</text>
         </view>
         <view class="cover-body">
+          <view class="cover-profile">
+            <image wx:if="{{profileAvatarUrl}}" class="cover-avatar" src="{{profileAvatarUrl}}" mode="aspectFill"></image>
+            <view class="cover-identity">
+              <view class="cover-name">{{profileNickname}}</view>
+              <view class="cover-caption">今晚由你亲自开场</view>
+            </view>
+          </view>
           <view class="cover-title">{{result.playlist.title}}</view>
           <view class="cover-subtitle muted">{{result.playlist.subtitle}}</view>
-          <button wx:if="{{showNicknameAuth}}" class="cover-auth-button" bindtap="handleAuthorizeNickname">使用微信昵称</button>
           <view class="cover-meta">
             <text class="cover-chip">{{result.playlist.tracks.length}} 首曲目</text>
             <text class="cover-chip">首推 {{result.playlist.tracks[0].song.title}}</text>
