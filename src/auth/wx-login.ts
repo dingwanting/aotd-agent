@@ -7,6 +7,13 @@ export interface WxLoginResult {
   sessionKey?: string;
 }
 
+export interface WxLoginFailure {
+  reason: "missing-credentials" | "missing-code" | "upstream-error" | "upstream-errcode" | "network";
+  httpStatus?: number;
+  errcode?: number;
+  errmsg?: string;
+}
+
 interface WxSessionResponse {
   openid?: string;
   unionid?: string;
@@ -22,9 +29,12 @@ export async function exchangeWxCodeForOpenId(
   appSecret: string,
   code: string,
   timeoutMs = 6000,
-): Promise<WxLoginResult | null> {
-  if (!appId || !appSecret || !code) {
-    return null;
+): Promise<{ ok: true; data: WxLoginResult } | { ok: false; failure: WxLoginFailure }> {
+  if (!appId || !appSecret) {
+    return { ok: false, failure: { reason: "missing-credentials" } };
+  }
+  if (!code) {
+    return { ok: false, failure: { reason: "missing-code" } };
   }
 
   const params = new URLSearchParams({
@@ -34,27 +44,50 @@ export async function exchangeWxCodeForOpenId(
     grant_type: "authorization_code",
   });
 
+  let response: Response;
   try {
-    const response = await fetch(`${WX_LOGIN_URL}?${params.toString()}`, {
+    response = await fetch(`${WX_LOGIN_URL}?${params.toString()}`, {
       method: "GET",
       signal: AbortSignal.timeout(timeoutMs),
     });
-
-    if (!response.ok) {
-      return null;
-    }
-
-    const payload = (await response.json()) as WxSessionResponse;
-    if (!payload.openid || payload.errcode) {
-      return null;
-    }
-
+  } catch (error) {
     return {
+      ok: false,
+      failure: {
+        reason: "network",
+        errmsg: error instanceof Error ? error.message : String(error),
+      },
+    };
+  }
+
+  if (!response.ok) {
+    return { ok: false, failure: { reason: "upstream-error", httpStatus: response.status } };
+  }
+
+  let payload: WxSessionResponse;
+  try {
+    payload = (await response.json()) as WxSessionResponse;
+  } catch {
+    return { ok: false, failure: { reason: "upstream-error", httpStatus: response.status } };
+  }
+
+  if (!payload.openid) {
+    return {
+      ok: false,
+      failure: {
+        reason: "upstream-errcode",
+        errcode: payload.errcode,
+        errmsg: payload.errmsg,
+      },
+    };
+  }
+
+  return {
+    ok: true,
+    data: {
       openid: payload.openid,
       unionid: payload.unionid,
       sessionKey: payload.session_key,
-    };
-  } catch {
-    return null;
-  }
+    },
+  };
 }

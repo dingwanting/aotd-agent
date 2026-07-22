@@ -194,17 +194,27 @@ async function handleWxLogin(req: HttpRequest, res: HttpResponse) {
   }
 
   // 1) 优先尝试用 code 换 openid（需要 WX_APPID + WX_SECRET 配齐）
-  const session = await exchangeWxCodeForOpenId(appEnv.wxAppId, appEnv.wxSecret, code);
-  if (session && session.openid) {
-    const record = userStore.upsertByOpenid(session.openid, nickname);
+  const exchange = await exchangeWxCodeForOpenId(appEnv.wxAppId, appEnv.wxSecret, code);
+  if (exchange.ok) {
+    const record = userStore.upsertByOpenid(exchange.data.openid, nickname);
     setSessionCookie(res, record.userId);
     sendJson(res, 200, {
       ok: true,
       profile: publicProfile(record),
-      isNew: !session.unionid && record.createdAt === record.lastSeenAt,
+      isNew: !exchange.data.unionid && record.createdAt === record.lastSeenAt,
     });
     return;
   }
+
+  // 详细打日志：失败原因 + 是否缺凭据 + 微信返回的 errcode
+  console.warn(
+    `[auth] wx-login failed reason=${exchange.failure.reason}` +
+      ` appIdSet=${Boolean(appEnv.wxAppId)} secretSet=${Boolean(appEnv.wxSecret)}` +
+      ` codeLen=${code.length}` +
+      (exchange.failure.httpStatus ? ` httpStatus=${exchange.failure.httpStatus}` : "") +
+      (exchange.failure.errcode ? ` errcode=${exchange.failure.errcode}` : "") +
+      (exchange.failure.errmsg ? ` errmsg=${exchange.failure.errmsg}` : ""),
+  );
 
   // 2) 没配 secret 或 code 失效：基于已有 userId 升级（如果有），否则发匿名
   const existing = readUser(req);
