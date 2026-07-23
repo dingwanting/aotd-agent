@@ -49,7 +49,21 @@ function clearQuestionDeck() {
   }
 }
 
-// 阶段 1：清用户态只清 userId/nickname，不动答题缓存（避免答题中途被踢掉）
+// 仅清登录态，让已保存的昵称和头像可以跨次进入复用。
+function clearSessionIdentity() {
+  try {
+    wx.removeStorageSync(STORAGE_KEYS.userId);
+  } catch {
+    // ignore
+  }
+  try {
+    wx.removeStorageSync(STORAGE_KEYS.isAnonymous);
+  } catch {
+    // ignore
+  }
+}
+
+// 全量清用户资料，保留给明确需要重置用户信息的场景。
 function clearUser() {
   try {
     wx.removeStorageSync(STORAGE_KEYS.userId);
@@ -90,5 +104,6 @@ module.exports = {
   clearResult,
   clearAnswers,
   clearQuestionDeck,
+  clearSessionIdentity,
   clearUser,
 };

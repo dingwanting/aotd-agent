@@ -1,5 +1,5 @@
 const { CLOUD_ENV_ID, USE_CLOUD_CONTAINER } = require("./utils/config");
-const { STORAGE_KEYS, getStorage, setStorage, clearUser } = require("./utils/storage");
+const { STORAGE_KEYS, getStorage, setStorage, clearSessionIdentity } = require("./utils/storage");
 const { requestWxLogin, requestProfile, updateUserProfile } = require("./utils/api");
 
 App({
@@ -38,7 +38,7 @@ App({
 
     // 缓存是 anonymous（或没有缓存）—— 清掉重来，确保 secret 配好之后能升级为 wx-xxx
     if (cachedUserId) {
-      clearUser();
+      clearSessionIdentity();
     }
 
     if (typeof wx.login !== "function") {
