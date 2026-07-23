@@ -28,7 +28,7 @@ const AOTD_REMINDER_PAGE = "pages/landing/index";
 
 // 部署版本指纹：每次代码改动必须 bump，方便从云托管日志确认跑的是哪个版本
 // 同时启动时打 dist 文件 hash + 文件 mtime + git HEAD，可以一眼看出"是否在跑新代码"
-const DEPLOY_VERSION = "aotd-2026-07-23-r12-evening-reminder-v1";
+const DEPLOY_VERSION = "aotd-2026-07-23-r13-recommendation-retry-v1";
 
 const appEnv = loadEnv();
 
@@ -678,6 +678,10 @@ async function handleApi(req: HttpRequest, res: HttpResponse) {
     sendJson(res, 200, result);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
+    console.error("[aotd] recommendation failed", {
+      error: message,
+      stack: error instanceof Error ? error.stack : undefined,
+    });
     sendJson(res, 500, { error: message });
   }
 }

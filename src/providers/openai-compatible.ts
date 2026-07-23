@@ -17,6 +17,10 @@ interface OpenAICompatibleResponse {
   };
 }
 
+const REQUEST_TIMEOUT_MS = 12000;
+const MAX_RETRY_ATTEMPTS = 3;
+const RETRYABLE_STATUS_CODES = new Set([408, 409, 429, 500, 502, 503, 504]);
+
 function normalizeBaseUrl(baseUrl: string): string {
   return baseUrl.replace(/\/+$/, "");
 }
@@ -34,6 +38,31 @@ function extractTextContent(content: string | Array<{ type?: string; text?: stri
   }
 
   return "";
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isRetryableStatus(status: number): boolean {
+  return RETRYABLE_STATUS_CODES.has(status);
+}
+
+function isRetryableError(error: unknown): boolean {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+  const name = "name" in error ? String(error.name || "") : "";
+  const message = "message" in error ? String(error.message || "") : "";
+  return name === "AbortError" || /timeout|timed out|fetch failed|network/i.test(message);
+}
+
+function parseJsonSafely(raw: string): OpenAICompatibleResponse {
+  try {
+    return JSON.parse(raw) as OpenAICompatibleResponse;
+  } catch {
+    return {};
+  }
 }
 
 export class OpenAICompatibleClient implements LLMClient {
@@ -58,39 +87,62 @@ export class OpenAICompatibleClient implements LLMClient {
       );
     }
 
-    const response = await fetch(`${normalizeBaseUrl(this.options.baseUrl)}/chat/completions`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        authorization: `Bearer ${this.options.apiKey}`,
-      },
-      body: JSON.stringify({
-        model: this.options.model,
-        temperature: params.temperature ?? 0.3,
-        max_tokens: params.maxTokens ?? 1200,
-        response_format: { type: "json_object" },
-        messages: [
-          { role: "system", content: params.systemPrompt },
-          ...params.messages.map((message) => ({
-            role: message.role,
-            content: message.content,
-          })),
-        ],
-      }),
+    const requestBody = JSON.stringify({
+      model: this.options.model,
+      temperature: params.temperature ?? 0.3,
+      max_tokens: params.maxTokens ?? 1200,
+      response_format: { type: "json_object" },
+      messages: [
+        { role: "system", content: params.systemPrompt },
+        ...params.messages.map((message) => ({
+          role: message.role,
+          content: message.content,
+        })),
+      ],
     });
 
-    const data = (await response.json()) as OpenAICompatibleResponse;
+    let lastError: Error | null = null;
+    for (let attempt = 1; attempt <= MAX_RETRY_ATTEMPTS; attempt += 1) {
+      try {
+        const response = await fetch(`${normalizeBaseUrl(this.options.baseUrl)}/chat/completions`, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            authorization: `Bearer ${this.options.apiKey}`,
+          },
+          body: requestBody,
+          signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+        });
 
-    if (!response.ok) {
-      const detail = data.error?.message ? `: ${data.error.message}` : "";
-      throw new Error(`OpenAI-compatible API error: ${response.status} ${response.statusText}${detail}`);
+        const rawBody = await response.text();
+        const data = parseJsonSafely(rawBody);
+
+        if (!response.ok) {
+          const detail = data.error?.message ? `: ${data.error.message}` : rawBody ? `: ${rawBody.slice(0, 240)}` : "";
+          const error = new Error(`OpenAI-compatible API error: ${response.status} ${response.statusText}${detail}`);
+          if (attempt < MAX_RETRY_ATTEMPTS && isRetryableStatus(response.status)) {
+            await sleep(300 * attempt);
+            continue;
+          }
+          throw error;
+        }
+
+        const text = extractTextContent(data.choices?.[0]?.message?.content);
+        if (!text) {
+          throw new Error("OpenAI-compatible API returned empty text content.");
+        }
+
+        return text;
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+        if (attempt < MAX_RETRY_ATTEMPTS && isRetryableError(error)) {
+          await sleep(300 * attempt);
+          continue;
+        }
+        throw lastError;
+      }
     }
 
-    const text = extractTextContent(data.choices?.[0]?.message?.content);
-    if (!text) {
-      throw new Error("OpenAI-compatible API returned empty text content.");
-    }
-
-    return text;
+    throw lastError || new Error("OpenAI-compatible API request failed.");
   }
 }
