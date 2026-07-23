@@ -55,6 +55,15 @@
   margin-top: 28rpx;
 }
 
+.player-secondary-actions {
+  display: flex;
+  gap: 16rpx;
+}
+
+.player-secondary-button {
+  flex: 1;
+}
+
 .player-retry {
   background: rgba(255, 255, 255, 0.9);
 }

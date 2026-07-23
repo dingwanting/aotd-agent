@@ -1,5 +1,6 @@
 const { STORAGE_KEYS, getStorage, clearAnswers, clearQuestionDeck, clearResult } = require("../../utils/storage");
 const { requestRecommendation, loadResultIfMatched, updateUserProfile, trackUserEvent } = require("../../utils/api");
+const { prefetchFullAudioTracks } = require("../../utils/full-audio");
 const {
   API_BASE_URL,
   USE_CLOUD_CONTAINER,
@@ -477,6 +478,7 @@ Page({
 
     const cached = loadResultIfMatched(answers);
     if (cached) {
+      this.prefetchTopFullTracks(cached);
       this.setData({
         loading: false,
         errorMessage: "",
@@ -505,6 +507,7 @@ Page({
 
     try {
       const result = await requestRecommendation(answers);
+      this.prefetchTopFullTracks(result);
       this.setData({
         loading: false,
         result: applyCoverTitle(result),
@@ -527,6 +530,22 @@ Page({
         errorMessage: error && error.message ? error.message : "生成歌单失败，请稍后再试。"
       });
     }
+  },
+
+  prefetchTopFullTracks(result) {
+    const tracks = result && result.playlist && Array.isArray(result.playlist.tracks) ? result.playlist.tracks : [];
+    const topTracks = tracks.slice(0, 3).map((track) => ({
+      title: track && track.song && track.song.title ? track.song.title : "",
+      artist: track && track.song && track.song.artist ? track.song.artist : "",
+      originalId: track && track.song && track.song.originalId ? String(track.song.originalId) : "",
+      keyword: buildTrackKeyword(track),
+    }));
+
+    if (!topTracks.length) {
+      return;
+    }
+
+    prefetchFullAudioTracks(topTracks).catch(() => {});
   },
 
   handleRetry() {

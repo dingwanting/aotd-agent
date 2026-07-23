@@ -3,7 +3,7 @@
     <text class="eyebrow">Full Track</text>
     <view class="player-title">{{title || '今晚这首歌'}}</view>
     <view class="player-artist muted">{{artist || 'AOTD 为你挑的完整版'}}</view>
-    <view class="player-tip">先在小程序里把整首缓存好，再顺着听下去。</view>
+    <view class="player-tip">结果页已经会提前缓存，进来后优先续上这份完整版。</view>
 
     <view class="player-status {{loadingFullAudio ? 'player-status--loading' : ''}}">
       {{stateText}}
@@ -22,8 +22,10 @@
       >
         {{loadingFullAudio ? '正在缓存完整版...' : (playing ? '暂停完整版' : (cachedReady ? '播放完整版' : '重新加载完整版'))}}
       </button>
-      <button class="action-secondary" bindtap="handleCopyKeyword">复制歌名去网易云搜索</button>
-      <button class="action-secondary player-retry" bindtap="handleRetryFullAudio">重新缓存完整版</button>
+      <view class="player-secondary-actions">
+        <button class="action-secondary player-secondary-button" bindtap="handleCopyKeyword">复制歌名</button>
+        <button class="action-secondary player-secondary-button player-retry" bindtap="handleRetryFullAudio">重新加载</button>
+      </view>
     </view>
   </view>
 </view>
