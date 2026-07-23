@@ -534,7 +534,7 @@ Page({
 
   prefetchTopFullTracks(result) {
     const tracks = result && result.playlist && Array.isArray(result.playlist.tracks) ? result.playlist.tracks : [];
-    const topTracks = tracks.slice(0, 3).map((track) => ({
+    const topTracks = tracks.slice(0, 5).map((track) => ({
       title: track && track.song && track.song.title ? track.song.title : "",
       artist: track && track.song && track.song.artist ? track.song.artist : "",
       originalId: track && track.song && track.song.originalId ? String(track.song.originalId) : "",

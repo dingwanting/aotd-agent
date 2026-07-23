@@ -38,7 +38,7 @@ function buildTempAudioFilePath(track) {
     .replace(/[^\w.-]+/g, "-")
     .replace(/-+/g, "-")
     .replace(/^-|-$/g, "");
-  return `${wx.env.USER_DATA_PATH}/${safeName || "aotd-full"}-full.mp3`;
+  return `${wx.env.USER_DATA_PATH}/${safeName || "aotd-full"}-full-v2.mp3`;
 }
 
 function readLocalAudioFile(filePath) {
@@ -177,6 +177,7 @@ function fetchFullAudioViaCloudContainer(track) {
 
 function fetchFullAudioViaHttp(track) {
   const normalized = normalizeTrack(track);
+  const filePath = buildTempAudioFilePath(normalized);
   const params = [];
   if (normalized.originalId) {
     params.push(`originalId=${encodeURIComponent(normalized.originalId)}`);
@@ -196,9 +197,11 @@ function fetchFullAudioViaHttp(track) {
   return new Promise((resolve, reject) => {
     wx.downloadFile({
       url: `${API_BASE_URL}/api/netease/audio/stream?${params.join("&")}`,
+      filePath,
+      timeout: FULL_AUDIO_FETCH_TIMEOUT_MS,
       success: (response) => {
-        if (response.statusCode >= 200 && response.statusCode < 300 && response.tempFilePath) {
-          resolve(response.tempFilePath);
+        if (response.statusCode >= 200 && response.statusCode < 300) {
+          resolve(response.filePath || response.tempFilePath || filePath);
           return;
         }
         reject(buildAudioError({
@@ -230,7 +233,12 @@ async function ensureFullAudioFile(track) {
   }
 
   const task = withTimeout(
-    USE_CLOUD_CONTAINER ? fetchFullAudioViaCloudContainer(normalized) : fetchFullAudioViaHttp(normalized),
+    fetchFullAudioViaHttp(normalized).catch((error) => {
+      if (!USE_CLOUD_CONTAINER) {
+        throw error;
+      }
+      return fetchFullAudioViaCloudContainer(normalized);
+    }),
     FULL_AUDIO_FETCH_TIMEOUT_MS
   ).finally(() => {
     delete fullAudioPromiseCache[signature];
