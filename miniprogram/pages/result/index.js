@@ -140,7 +140,7 @@ function buildAudioStreamUrl(track) {
   return `${API_BASE_URL}/api/netease/audio/stream?${params.join("&")}`;
 }
 
-function buildNeteasePlayPageUrl(track) {
+function buildFullPlayerPageUrl(track) {
   const song = track && track.song ? track.song : {};
   const params = [];
   const keyword = buildTrackKeyword(track);
@@ -158,7 +158,7 @@ function buildNeteasePlayPageUrl(track) {
     params.push(`keyword=${encodeURIComponent(keyword)}`);
   }
 
-  return `${API_BASE_URL}/netease-player.html?${params.join("&")}`;
+  return `/pages/full-player/index?${params.join("&")}`;
 }
 
 function buildAudioResolveParams(track) {
@@ -571,7 +571,7 @@ Page({
     });
   },
 
-  handleOpenNeteaseTrack(event) {
+  handleOpenFullTrack(event) {
     const { index } = event.currentTarget.dataset;
     const result = this.data.result;
     const track = result && result.playlist && result.playlist.tracks ? result.playlist.tracks[index] : null;
@@ -579,19 +579,19 @@ Page({
       return;
     }
 
-    const playerUrl = buildNeteasePlayPageUrl(track);
+    const playerUrl = buildFullPlayerPageUrl(track);
     this.setData({
       copiedTrackIndex: Number(index)
     });
     trackUserEvent({
-      type: "track_open_netease_h5",
+      type: "track_open_full_player",
       trackRank: track.rank,
       title: track.song && track.song.title,
       artist: track.song && track.song.artist,
       originalId: track.song && track.song.originalId ? String(track.song.originalId) : ""
     }).catch(() => {});
     wx.navigateTo({
-      url: `/pages/player-webview/index?src=${encodeURIComponent(playerUrl)}&title=${encodeURIComponent(track.song && track.song.title ? track.song.title : "网易云播放页")}`
+      url: playerUrl
     });
   },
 

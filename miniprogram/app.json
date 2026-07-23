@@ -3,6 +3,7 @@
     "pages/landing/index",
     "pages/question/index",
     "pages/result/index",
+    "pages/full-player/index",
     "pages/player-webview/index"
   ],
   "window": {

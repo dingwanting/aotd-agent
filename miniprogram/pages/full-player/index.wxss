@@ -1,0 +1,60 @@
+.player-card {
+  margin-top: 18rpx;
+  padding: 34rpx 30rpx;
+}
+
+.player-title {
+  font-size: 44rpx;
+  line-height: 1.24;
+  font-weight: 600;
+  color: #4b3740;
+}
+
+.player-artist {
+  margin-top: 12rpx;
+  font-size: 28rpx;
+  line-height: 1.55;
+}
+
+.player-tip {
+  margin-top: 18rpx;
+  color: rgba(89, 68, 79, 0.82);
+  font-size: 26rpx;
+  line-height: 1.6;
+}
+
+.player-status {
+  margin-top: 24rpx;
+  padding: 22rpx 24rpx;
+  border-radius: 24rpx;
+  background: rgba(255, 245, 249, 0.9);
+  color: #6a4757;
+  font-size: 26rpx;
+  line-height: 1.65;
+}
+
+.player-status--loading {
+  background: rgba(255, 238, 244, 0.98);
+  color: #9a5873;
+}
+
+.player-keyword {
+  margin-top: 18rpx;
+  padding: 18rpx 22rpx;
+  border-radius: 22rpx;
+  background: rgba(255, 249, 252, 0.96);
+  color: rgba(109, 84, 94, 0.86);
+  font-size: 24rpx;
+  line-height: 1.55;
+}
+
+.player-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 16rpx;
+  margin-top: 28rpx;
+}
+
+.player-retry {
+  background: rgba(255, 255, 255, 0.9);
+}

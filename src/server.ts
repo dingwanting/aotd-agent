@@ -24,7 +24,7 @@ const USER_ID_COOKIE = "aotd_uid";
 
 // 部署版本指纹：每次代码改动必须 bump，方便从云托管日志确认跑的是哪个版本
 // 同时启动时打 dist 文件 hash + 文件 mtime + git HEAD，可以一眼看出"是否在跑新代码"
-const DEPLOY_VERSION = "aotd-2026-07-23-r10-health-guard-v1";
+const DEPLOY_VERSION = "aotd-2026-07-23-r11-full-player-v1";
 
 const appEnv = loadEnv();
 
@@ -608,6 +608,7 @@ async function handleNeteaseAudioStream(req: HttpRequest, requestUrl: URL, res: 
   const originalId = requestUrl.searchParams.get("originalId") || "";
   const previewBytesRaw = requestUrl.searchParams.get("previewBytes") || "";
   const previewBytes = Number.parseInt(previewBytesRaw, 10);
+  const full = requestUrl.searchParams.get("full") === "1";
 
   try {
     const resolution = await resolveNeteaseAudio({
@@ -629,6 +630,8 @@ async function handleNeteaseAudioStream(req: HttpRequest, requestUrl: URL, res: 
     };
     if (req.headers.range) {
       upstreamHeaders.range = req.headers.range;
+    } else if (full) {
+      // 完整版播放页会显式请求整首，这里不加 Range，交给上游返回完整音频。
     } else if (Number.isFinite(previewBytes) && previewBytes > 0) {
       upstreamHeaders.range = `bytes=0-${previewBytes - 1}`;
     } else {
