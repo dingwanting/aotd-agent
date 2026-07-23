@@ -1,5 +1,12 @@
 const { STORAGE_KEYS, getStorage, clearAnswers, clearQuestionDeck, clearResult } = require("../../utils/storage");
-const { requestRecommendation, loadResultIfMatched, updateUserProfile, trackUserEvent } = require("../../utils/api");
+const {
+  requestRecommendation,
+  loadResultIfMatched,
+  updateUserProfile,
+  trackUserEvent,
+  requestEveningReminderStatus,
+  createEveningReminder,
+} = require("../../utils/api");
 const {
   API_BASE_URL,
   USE_CLOUD_CONTAINER,
@@ -23,6 +30,7 @@ const POSTER_TEMPLATE_PATH = "/assets/poster/aotd-report-template.jpg";
 const POSTER_QRCODE_PATH = "/assets/poster/aotd-mini-qrcode.png";
 const POSTER_TEMPLATE_WIDTH = 1020;
 const POSTER_TEMPLATE_HEIGHT = 1541;
+const EVENING_REMINDER_TEMPLATE_ID = "juig4kKFh82FrsxB-gjvpIgNqn3fZgCEB2duDNCuLjY";
 
 function normalizeCoverTitle(rawTitle) {
   const title = String(rawTitle || "").trim();
@@ -408,7 +416,10 @@ Page({
     posterGenerating: false,
     posterReady: false,
     posterImagePath: "",
-    showPosterPreview: false
+    showPosterPreview: false,
+    reminderEnabled: false,
+    reminderLoading: false,
+    reminderTimeText: "明天 18:00"
   },
 
   onShow() {
@@ -482,6 +493,7 @@ Page({
       });
       trackUserEvent({ type: "result_view_cached", answers }).catch(() => {});
       this.autoPlayTopTrack(cached);
+      this.refreshEveningReminderStatus();
       return;
     }
 
@@ -509,10 +521,66 @@ Page({
       });
       trackUserEvent({ type: "result_view", answers }).catch(() => {});
       this.autoPlayTopTrack(result);
+      this.refreshEveningReminderStatus();
     } catch (error) {
       this.setData({
         loading: false,
         errorMessage: error && error.message ? error.message : "生成歌单失败，请稍后再试。"
+      });
+    }
+  },
+
+  async refreshEveningReminderStatus() {
+    try {
+      const payload = await requestEveningReminderStatus();
+      const remindAt = payload && payload.reminder && payload.reminder.remindAt ? new Date(payload.reminder.remindAt) : null;
+      this.setData({
+        reminderEnabled: Boolean(payload && payload.subscribed),
+        reminderTimeText: remindAt ? `${remindAt.getMonth() + 1}月${remindAt.getDate()}日 18:00` : "明天 18:00",
+      });
+    } catch (error) {
+      console.warn("[aotd] reminder status failed:", error && error.message ? error.message : error);
+    }
+  },
+
+  async handleSubscribeReminder() {
+    if (this.data.reminderEnabled || this.data.reminderLoading) {
+      return;
+    }
+    this.setData({
+      reminderLoading: true,
+    });
+    try {
+      const subscribeResult = await withPromise(wx.requestSubscribeMessage, {
+        tmplIds: [EVENING_REMINDER_TEMPLATE_ID],
+      });
+      const status = subscribeResult && subscribeResult[EVENING_REMINDER_TEMPLATE_ID];
+      if (status !== "accept") {
+        throw new Error(status === "reject" ? "你刚刚没有打开提醒" : "当前无法开启提醒");
+      }
+      const payload = await createEveningReminder();
+      const remindAt = payload && payload.reminder && payload.reminder.remindAt ? new Date(payload.reminder.remindAt) : null;
+      this.setData({
+        reminderEnabled: true,
+        reminderLoading: false,
+        reminderTimeText: remindAt ? `${remindAt.getMonth() + 1}月${remindAt.getDate()}日 18:00` : "明天 18:00",
+      });
+      trackUserEvent({
+        type: "evening_reminder_accept",
+        templateId: EVENING_REMINDER_TEMPLATE_ID,
+      }).catch(() => {});
+      wx.showToast({
+        title: "已开启下班提醒",
+        icon: "success",
+      });
+    } catch (error) {
+      this.setData({
+        reminderLoading: false,
+      });
+      const message = error && error.message ? error.message : "开启提醒失败";
+      wx.showToast({
+        title: message,
+        icon: "none",
       });
     }
   },

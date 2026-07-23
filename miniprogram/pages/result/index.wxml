@@ -82,6 +82,9 @@
 
     <view class="actions">
       <button class="action-primary" loading="{{posterGenerating}}" disabled="{{posterGenerating}}" bindtap="handleGeneratePoster">生成 AOTD 报告</button>
+      <button class="action-secondary reminder-button {{reminderEnabled ? 'reminder-button--active' : ''}}" loading="{{reminderLoading}}" disabled="{{reminderLoading || reminderEnabled}}" bindtap="handleSubscribeReminder">
+        {{reminderEnabled ? reminderTimeText + ' 会提醒你' : '18:00 提醒我'}}
+      </button>
       <button class="action-secondary" bindtap="handleRestart">重新回答</button>
     </view>
 

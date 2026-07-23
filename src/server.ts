@@ -9,9 +9,11 @@ import { fileURLToPath } from "node:url";
 import { AotdAgent } from "./agents/aotd-agent.js";
 import type { AotdQuestionnaireAnswers } from "./domain/aotd/types.js";
 import { resolveNeteaseAudio, resolveNeteaseTrackUrl } from "./integrations/netease.js";
+import { sendMiniProgramSubscribeMessage } from "./integrations/wx-subscribe.js";
 import { loadEnv } from "./config/env.js";
 import { exchangeWxCodeForOpenId } from "./auth/wx-login.js";
 import { userStore, type UserRecord } from "./auth/user-store.js";
+import { reminderStore } from "./persistence/reminder-store.js";
 import { userStateStore, type QuestionDeckIds, type UserProfileRecord } from "./persistence/user-state-store.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -21,10 +23,12 @@ const port = Number(process.env.PORT || 4173);
 const AUDIO_STREAM_FETCH_TIMEOUT_MS = 12000;
 const DEFAULT_AUDIO_PREVIEW_BYTES = 256 * 1024;
 const USER_ID_COOKIE = "aotd_uid";
+const AOTD_REMINDER_TEMPLATE_ID = "juig4kKFh82FrsxB-gjvpIgNqn3fZgCEB2duDNCuLjY";
+const AOTD_REMINDER_PAGE = "pages/landing/index";
 
 // 部署版本指纹：每次代码改动必须 bump，方便从云托管日志确认跑的是哪个版本
 // 同时启动时打 dist 文件 hash + 文件 mtime + git HEAD，可以一眼看出"是否在跑新代码"
-const DEPLOY_VERSION = "aotd-2026-07-23-r11-full-player-v1";
+const DEPLOY_VERSION = "aotd-2026-07-23-r12-evening-reminder-v1";
 
 const appEnv = loadEnv();
 
@@ -170,6 +174,155 @@ function publicProfile(
     avatarFileId: record.avatarFileId,
     isAnonymous: record.isAnonymous,
   };
+}
+
+function buildNextEveningReminderAt(now = new Date()): Date {
+  const offsetMs = 8 * 60 * 60 * 1000;
+  const chinaNow = new Date(now.getTime() + offsetMs);
+  const year = chinaNow.getUTCFullYear();
+  const month = chinaNow.getUTCMonth();
+  const day = chinaNow.getUTCDate();
+  let nextUtcMs = Date.UTC(year, month, day, 18, 0, 0) - offsetMs;
+  if (nextUtcMs <= now.getTime()) {
+    nextUtcMs += 24 * 60 * 60 * 1000;
+  }
+  return new Date(nextUtcMs);
+}
+
+function formatReminderTime(value: Date): string {
+  const offsetMs = 8 * 60 * 60 * 1000;
+  const chinaTime = new Date(value.getTime() + offsetMs);
+  const year = chinaTime.getUTCFullYear();
+  const month = chinaTime.getUTCMonth() + 1;
+  const day = chinaTime.getUTCDate();
+  const hours = String(chinaTime.getUTCHours()).padStart(2, "0");
+  const minutes = String(chinaTime.getUTCMinutes()).padStart(2, "0");
+  return `${year}年${month}月${day}日 ${hours}:${minutes}`;
+}
+
+async function handleReminderSubscribe(req: HttpRequest, res: HttpResponse) {
+  if (req.method !== "POST") {
+    sendJson(res, 405, { error: "Method not allowed" });
+    return;
+  }
+  const userId = readUserIdFromRequest(req);
+  if (!userId) {
+    sendJson(res, 401, { error: "Missing user session" });
+    return;
+  }
+  const existing = await userStateStore.findByUserId(userId);
+  const openid = existing?.profile?.openid || "";
+  if (!openid) {
+    sendJson(res, 400, { error: "Current account has not completed wx login" });
+    return;
+  }
+  const remindAt = buildNextEveningReminderAt();
+  const reminder = await reminderStore.scheduleReminder({
+    userId,
+    openid,
+    templateId: AOTD_REMINDER_TEMPLATE_ID,
+    pagePath: AOTD_REMINDER_PAGE,
+    remindAt,
+  });
+  if (!reminder) {
+    sendJson(res, 503, { error: "Reminder persistence is unavailable" });
+    return;
+  }
+  await userStateStore.appendEvent(userId, {
+    type: "evening_reminder_subscribed",
+    remindAt: reminder.remindAt,
+    templateId: AOTD_REMINDER_TEMPLATE_ID,
+  });
+  sendJson(res, 200, {
+    ok: true,
+    reminder: {
+      id: reminder.id,
+      remindAt: reminder.remindAt,
+      templateId: reminder.templateId,
+      pagePath: reminder.pagePath,
+    },
+  });
+}
+
+async function handleReminderStatus(req: HttpRequest, res: HttpResponse) {
+  if (req.method !== "GET") {
+    sendJson(res, 405, { error: "Method not allowed" });
+    return;
+  }
+  const userId = readUserIdFromRequest(req);
+  if (!userId) {
+    sendJson(res, 401, { error: "Missing user session" });
+    return;
+  }
+  const reminder = await reminderStore.findLatestActiveReminder(userId, AOTD_REMINDER_TEMPLATE_ID);
+  sendJson(res, 200, {
+    ok: true,
+    subscribed: Boolean(reminder),
+    reminder: reminder
+      ? {
+          remindAt: reminder.remindAt,
+          templateId: reminder.templateId,
+          pagePath: reminder.pagePath,
+        }
+      : null,
+  });
+}
+
+async function handleReminderDispatch(req: HttpRequest, res: HttpResponse) {
+  if (req.method !== "POST") {
+    sendJson(res, 405, { error: "Method not allowed" });
+    return;
+  }
+  const requestToken = Array.isArray(req.headers["x-aotd-reminder-token"])
+    ? req.headers["x-aotd-reminder-token"][0]
+    : req.headers["x-aotd-reminder-token"] || "";
+  if (!appEnv.reminderWorkerToken || requestToken !== appEnv.reminderWorkerToken) {
+    sendJson(res, 401, { error: "Unauthorized" });
+    return;
+  }
+  if (!appEnv.wxAppId || !appEnv.wxSecret) {
+    sendJson(res, 400, { error: "Missing WX_APPID or WX_SECRET" });
+    return;
+  }
+  const dueReminders = await reminderStore.findDuePending(50);
+  const results: Array<{ id: number; ok: boolean; error?: string }> = [];
+  for (const reminder of dueReminders) {
+    const claimed = await reminderStore.claimReminder(reminder.id);
+    if (!claimed) {
+      continue;
+    }
+    try {
+      await sendMiniProgramSubscribeMessage({
+        appId: appEnv.wxAppId,
+        secret: appEnv.wxSecret,
+        openid: reminder.openid,
+        templateId: reminder.templateId,
+        page: reminder.pagePath,
+        data: {
+          thing1: { value: "AOTD今晚的陪伴" },
+          time2: { value: formatReminderTime(new Date(reminder.remindAt)) },
+          thing3: { value: "今天的工作差不多结束了吧" },
+          phrase4: { value: "去生成陪伴" },
+        },
+      });
+      await reminderStore.markSent(reminder.id);
+      await userStateStore.appendEvent(reminder.userId, {
+        type: "evening_reminder_sent",
+        reminderId: reminder.id,
+        remindAt: reminder.remindAt,
+      });
+      results.push({ id: reminder.id, ok: true });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown reminder dispatch error";
+      await reminderStore.markFailed(reminder.id, message);
+      results.push({ id: reminder.id, ok: false, error: message });
+    }
+  }
+  sendJson(res, 200, {
+    ok: true,
+    processed: results.length,
+    results,
+  });
 }
 
 async function ensurePersistedUser(
@@ -705,6 +858,21 @@ const server = createServer(async (req, res) => {
 
     if (requestUrl.pathname === "/api/user/events") {
       await handleUserEvents(req, res);
+      return;
+    }
+
+    if (requestUrl.pathname === "/api/reminders/evening-subscribe") {
+      await handleReminderSubscribe(req, res);
+      return;
+    }
+
+    if (requestUrl.pathname === "/api/reminders/evening-status") {
+      await handleReminderStatus(req, res);
+      return;
+    }
+
+    if (requestUrl.pathname === "/api/reminders/dispatch") {
+      await handleReminderDispatch(req, res);
       return;
     }
 

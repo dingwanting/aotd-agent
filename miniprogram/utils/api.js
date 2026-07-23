@@ -477,6 +477,112 @@ function trackUserEvent(event) {
   });
 }
 
+function requestEveningReminderStatus() {
+  const userId = getStorage(STORAGE_KEYS.userId, "");
+  const headers = {};
+  if (userId) {
+    headers["X-AOTD-User-Id"] = userId;
+  }
+  return new Promise((resolve, reject) => {
+    const handleSuccess = (response) => {
+      if (response.statusCode >= 200 && response.statusCode < 300 && response.data && response.data.ok) {
+        resolve(response.data);
+        return;
+      }
+      reject(new Error((response.data && response.data.error) || "获取提醒状态失败"));
+    };
+
+    if (!USE_LOCAL_API && USE_CLOUD_CONTAINER) {
+      const serviceNames = Array.from(new Set([CLOUD_SERVICE_NAME].concat(CLOUD_SERVICE_FALLBACKS || []).filter(Boolean)));
+      const tryCall = (index) => {
+        const serviceName = serviceNames[index];
+        if (!serviceName) {
+          reject(new Error("无法连接到云托管服务"));
+          return;
+        }
+        wx.cloud.callContainer({
+          config: { env: CLOUD_ENV_ID },
+          path: "/api/reminders/evening-status",
+          method: "GET",
+          header: Object.assign({ "X-WX-SERVICE": serviceName }, headers),
+          success: handleSuccess,
+          fail: (error) => {
+            if (index < serviceNames.length - 1) {
+              tryCall(index + 1);
+              return;
+            }
+            reject(new Error((error && error.errMsg) || "获取提醒状态失败"));
+          },
+        });
+      };
+      tryCall(0);
+      return;
+    }
+
+    wx.request({
+      url: `${API_BASE_URL}/api/reminders/evening-status`,
+      method: "GET",
+      header: headers,
+      success: handleSuccess,
+      fail: (error) => reject(new Error((error && error.errMsg) || "获取提醒状态失败")),
+    });
+  });
+}
+
+function createEveningReminder() {
+  const userId = getStorage(STORAGE_KEYS.userId, "");
+  const headers = { "content-type": "application/json" };
+  if (userId) {
+    headers["X-AOTD-User-Id"] = userId;
+  }
+  return new Promise((resolve, reject) => {
+    const handleSuccess = (response) => {
+      if (response.statusCode >= 200 && response.statusCode < 300 && response.data && response.data.ok) {
+        resolve(response.data);
+        return;
+      }
+      reject(new Error((response.data && response.data.error) || "创建提醒失败"));
+    };
+
+    if (!USE_LOCAL_API && USE_CLOUD_CONTAINER) {
+      const serviceNames = Array.from(new Set([CLOUD_SERVICE_NAME].concat(CLOUD_SERVICE_FALLBACKS || []).filter(Boolean)));
+      const tryCall = (index) => {
+        const serviceName = serviceNames[index];
+        if (!serviceName) {
+          reject(new Error("无法连接到云托管服务"));
+          return;
+        }
+        wx.cloud.callContainer({
+          config: { env: CLOUD_ENV_ID },
+          path: "/api/reminders/evening-subscribe",
+          method: "POST",
+          header: Object.assign({ "X-WX-SERVICE": serviceName }, headers),
+          data: {},
+          success: handleSuccess,
+          fail: (error) => {
+            if (index < serviceNames.length - 1) {
+              tryCall(index + 1);
+              return;
+            }
+            reject(new Error((error && error.errMsg) || "创建提醒失败"));
+          },
+        });
+      };
+      tryCall(0);
+      return;
+    }
+
+    wx.request({
+      url: `${API_BASE_URL}/api/reminders/evening-subscribe`,
+      method: "POST",
+      header: headers,
+      data: {},
+      success: handleSuccess,
+      fail: (error) => reject(new Error((error && error.errMsg) || "创建提醒失败")),
+    });
+  });
+}
+
 module.exports = {
   requestRecommendation,
   loadResultIfMatched,
@@ -484,4 +590,6 @@ module.exports = {
   requestProfile,
   updateUserProfile,
   trackUserEvent,
+  requestEveningReminderStatus,
+  createEveningReminder,
 };
