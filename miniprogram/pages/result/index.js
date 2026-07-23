@@ -808,6 +808,15 @@ Page({
     const templateScale = POSTER_WIDTH / 1024;
     const tx = (value) => value * templateScale;
     const ty = (value) => value * templateScale;
+    const title = stripPlaylistPrefix(poster.result.playlist.title);
+    const posterCopy = buildPosterShortCopy(poster.result);
+    const nickname = poster && poster.nickname ? String(poster.nickname).trim() : "";
+    const posterOwner = buildPosterOwnerLine(nickname);
+    const posterSubtitle =
+      poster && poster.result && poster.result.playlist && poster.result.playlist.subtitle
+        ? String(poster.result.playlist.subtitle).trim()
+        : "";
+    const songs = poster.result.playlist.tracks.slice(0, 5);
 
     if (poster.templateImage) {
       ctx.drawImage(poster.templateImage, 0, 0, POSTER_WIDTH, POSTER_HEIGHT);
