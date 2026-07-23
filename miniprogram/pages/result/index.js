@@ -103,6 +103,26 @@ function wrapPosterText(ctx, text, x, y, maxWidth, lineHeight, maxLines) {
   return y + lineHeight * row;
 }
 
+function buildPosterOwnerLine(nickname) {
+  const name = String(nickname || "").trim();
+  return name ? `${name} 的 AOTD` : "你的 AOTD";
+}
+
+function roundedPath(ctx, x, y, width, height, radius) {
+  const r = Math.max(0, Math.min(radius, width / 2, height / 2));
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + width - r, y);
+  ctx.quadraticCurveTo(x + width, y, x + width, y + r);
+  ctx.lineTo(x + width, y + height - r);
+  ctx.quadraticCurveTo(x + width, y + height, x + width - r, y + height);
+  ctx.lineTo(x + r, y + height);
+  ctx.quadraticCurveTo(x, y + height, x, y + height - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+}
+
 function getAnswers() {
   return getStorage(STORAGE_KEYS.answers, {});
 }
@@ -805,144 +825,227 @@ Page({
     const title = stripPlaylistPrefix(poster.result.playlist.title);
     const posterCopy = buildPosterShortCopy(poster.result);
     const nickname = poster && poster.nickname ? String(poster.nickname).trim() : "";
-    const posterOwner = nickname ? `${nickname} 的 AOTD` : "你的 AOTD";
+    const posterOwner = buildPosterOwnerLine(nickname);
+    const posterSubtitle =
+      poster && poster.result && poster.result.playlist && poster.result.playlist.subtitle
+        ? String(poster.result.playlist.subtitle).trim()
+        : "";
+    const songs = poster.result.playlist.tracks.slice(0, 5);
 
     ctx.clearRect(0, 0, POSTER_WIDTH, POSTER_HEIGHT);
     const bgGradient = ctx.createLinearGradient(0, 0, POSTER_WIDTH, POSTER_HEIGHT);
     bgGradient.addColorStop(0, "#fff8fb");
-    bgGradient.addColorStop(0.45, "#f8e8ef");
-    bgGradient.addColorStop(1, "#f1d6e1");
+    bgGradient.addColorStop(0.5, "#f8edf1");
+    bgGradient.addColorStop(1, "#f3dfe8");
     ctx.fillStyle = bgGradient;
     ctx.fillRect(0, 0, POSTER_WIDTH, POSTER_HEIGHT);
 
-    const halo = ctx.createRadialGradient(sx(220), sy(200), sx(40), sx(220), sy(200), sx(460));
-    halo.addColorStop(0, "rgba(255,255,255,0.92)");
-    halo.addColorStop(1, "rgba(255,255,255,0)");
-    ctx.fillStyle = halo;
+    const glow = ctx.createRadialGradient(sx(540), sy(250), sx(30), sx(540), sy(250), sx(330));
+    glow.addColorStop(0, "rgba(255,255,255,0.68)");
+    glow.addColorStop(1, "rgba(255,255,255,0)");
+    ctx.fillStyle = glow;
     ctx.fillRect(0, 0, POSTER_WIDTH, POSTER_HEIGHT);
+    ctx.shadowColor = "rgba(206, 116, 147, 0.10)";
+    ctx.shadowBlur = sx(30);
+    ctx.fillStyle = "rgba(255,255,255,0.82)";
+    roundedPath(ctx, sx(32), sy(42), sx(656), sy(1000), sx(18));
+    ctx.fill();
+    ctx.shadowColor = "transparent";
+    ctx.shadowBlur = 0;
 
-    ctx.fillStyle = "rgba(255,255,255,0.75)";
-    ctx.fillRect(sx(78), sy(72), POSTER_WIDTH - sx(156), POSTER_HEIGHT - sy(144));
-
-    const profileY = sy(130);
+    const profileY = sy(96);
     if (poster.avatarImage) {
       ctx.save();
       ctx.beginPath();
-      ctx.arc(sx(146), profileY, sx(26), 0, Math.PI * 2);
+      ctx.arc(sx(76), profileY, sx(21), 0, Math.PI * 2);
       ctx.clip();
-      ctx.drawImage(poster.avatarImage, sx(120), profileY - sx(26), sx(52), sx(52));
+      ctx.drawImage(poster.avatarImage, sx(55), profileY - sx(21), sx(42), sx(42));
       ctx.restore();
     } else {
       ctx.fillStyle = "rgba(255,255,255,0.96)";
       ctx.beginPath();
-      ctx.arc(sx(146), profileY, sx(26), 0, Math.PI * 2);
+      ctx.arc(sx(76), profileY, sx(21), 0, Math.PI * 2);
       ctx.fill();
     }
 
-    ctx.fillStyle = "#b86b88";
-    ctx.font = `${Math.round(sx(24))}px sans-serif`;
-    ctx.fillText(posterOwner, sx(188), sy(138));
-    ctx.fillStyle = "rgba(92,63,75,0.66)";
+    ctx.fillStyle = "#d96e94";
     ctx.font = `${Math.round(sx(22))}px sans-serif`;
-    ctx.fillText("今晚这张私人歌单", sx(188), sy(170));
+    ctx.fillText(posterOwner, sx(106), sy(100));
+    ctx.fillStyle = "rgba(99,77,87,0.7)";
+    ctx.font = `${Math.round(sx(18))}px sans-serif`;
+    ctx.fillText("今晚这张私人歌单", sx(106), sy(126));
 
-    ctx.fillStyle = "#5c3f4b";
-    ctx.font = `${Math.round(sx(64))}px sans-serif`;
-    const nextY = wrapPosterText(ctx, title, sx(120), sy(244), POSTER_WIDTH - sx(240), sy(74), 2);
+    ctx.save();
+    ctx.translate(sx(596), sy(116));
+    ctx.rotate(-0.22);
+    ctx.strokeStyle = "rgba(225,136,170,0.88)";
+    ctx.lineWidth = Math.max(1, sx(1.8));
+    ctx.beginPath();
+    ctx.arc(0, 0, sx(58), 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(0, -sx(18));
+    ctx.lineTo(sx(6), -sx(6));
+    ctx.lineTo(sx(18), -sx(2));
+    ctx.lineTo(sx(8), sx(8));
+    ctx.lineTo(sx(12), sx(20));
+    ctx.lineTo(0, sx(12));
+    ctx.lineTo(-sx(12), sx(20));
+    ctx.lineTo(-sx(8), sx(8));
+    ctx.lineTo(-sx(18), -sx(2));
+    ctx.lineTo(-sx(6), -sx(6));
+    ctx.closePath();
+    ctx.fillStyle = "rgba(225,136,170,0.72)";
+    ctx.fill();
+    ctx.restore();
 
-    ctx.fillStyle = "rgba(92,63,75,0.72)";
-    ctx.font = `${Math.round(sx(26))}px sans-serif`;
-    wrapPosterText(
-      ctx,
-      posterCopy.kicker,
-      sx(120),
-      nextY + sy(18),
-      POSTER_WIDTH - sx(240),
-      sy(38),
-      2,
-    );
-    wrapPosterText(
-      ctx,
-      posterCopy.subline,
-      sx(120),
-      nextY + sy(72),
-      POSTER_WIDTH - sx(240),
-      sy(34),
-      2,
-    );
+    ctx.fillStyle = "#e387a9";
+    ctx.font = `600 ${Math.round(sx(52))}px sans-serif`;
+    const titleBottom = wrapPosterText(ctx, title, sx(62), sy(186), sx(320), sy(62), 3);
 
-    const recordCenterX = sx(330);
-    const recordCenterY = sy(720);
-    const recordRadius = sx(198);
-    const recordGradient = ctx.createLinearGradient(sx(120), sy(520), sx(520), sy(920));
-    recordGradient.addColorStop(0, "#2d2930");
-    recordGradient.addColorStop(1, "#111015");
-    ctx.fillStyle = recordGradient;
+    ctx.fillStyle = "rgba(98,80,90,0.82)";
+    ctx.font = `${Math.round(sx(18))}px sans-serif`;
+    const copyBottom = wrapPosterText(ctx, posterCopy.kicker, sx(62), titleBottom + sy(22), sx(300), sy(28), 2);
+    wrapPosterText(ctx, posterCopy.subline, sx(62), copyBottom + sy(8), sx(300), sy(26), 2);
+
+    ctx.fillStyle = "rgba(225,136,170,0.92)";
+    ctx.font = `${Math.round(sx(20))}px sans-serif`;
+    ctx.fillText("Track List", sx(408), sy(428));
+    ctx.fillStyle = "rgba(98,80,90,0.74)";
+    ctx.font = `${Math.round(sx(18))}px sans-serif`;
+    ctx.fillText("今晚唱片里的 5 首歌", sx(408), sy(454));
+
+    const recordCenterX = sx(208);
+    const recordCenterY = sy(602);
+    const recordRadius = sx(152);
+    const recordGradient = ctx.createRadialGradient(recordCenterX - sx(42), recordCenterY - sx(50), sx(16), recordCenterX, recordCenterY, recordRadius);
+    recordGradient.addColorStop(0, "#2d2530");
+    recordGradient.addColorStop(0.55, "#171322");
+    recordGradient.addColorStop(1, "#08070d");
+    ctx.shadowColor = "rgba(25, 17, 26, 0.24)";
+    ctx.shadowBlur = sx(24);
     ctx.beginPath();
     ctx.arc(recordCenterX, recordCenterY, recordRadius, 0, Math.PI * 2);
+    ctx.fillStyle = recordGradient;
     ctx.fill();
+    ctx.shadowColor = "transparent";
+    ctx.shadowBlur = 0;
 
     ctx.strokeStyle = "rgba(255,255,255,0.08)";
-    ctx.lineWidth = Math.max(1, sx(2));
-    for (let ring = 0; ring < 7; ring += 1) {
+    ctx.lineWidth = Math.max(1, sx(1.4));
+    for (let ring = 0; ring < 8; ring += 1) {
       ctx.beginPath();
-      ctx.arc(recordCenterX, recordCenterY, sx(60 + ring * 22), 0, Math.PI * 2);
+      ctx.arc(recordCenterX, recordCenterY, sx(52 + ring * 14), 0, Math.PI * 2);
       ctx.stroke();
     }
 
-    ctx.fillStyle = "#f5d6e1";
+    ctx.fillStyle = "#f4d5e1";
     ctx.beginPath();
-    ctx.arc(recordCenterX, recordCenterY, sx(88), 0, Math.PI * 2);
+    ctx.arc(recordCenterX, recordCenterY, sx(56), 0, Math.PI * 2);
     ctx.fill();
 
     if (poster.avatarImage) {
       ctx.save();
       ctx.beginPath();
-      ctx.arc(recordCenterX, recordCenterY, sx(52), 0, Math.PI * 2);
+      ctx.arc(recordCenterX, recordCenterY, sx(36), 0, Math.PI * 2);
       ctx.clip();
-      ctx.drawImage(poster.avatarImage, recordCenterX - sx(52), recordCenterY - sx(52), sx(104), sx(104));
+      ctx.drawImage(poster.avatarImage, recordCenterX - sx(36), recordCenterY - sx(36), sx(72), sx(72));
       ctx.restore();
-    } else {
-      ctx.fillStyle = "#ffffff";
-      ctx.beginPath();
-      ctx.arc(recordCenterX, recordCenterY, sx(28), 0, Math.PI * 2);
-      ctx.fill();
     }
 
-    ctx.strokeStyle = "rgba(255,255,255,0.55)";
+    ctx.strokeStyle = "rgba(245,235,240,0.92)";
     ctx.lineWidth = Math.max(1, sx(3));
     ctx.beginPath();
-    ctx.moveTo(sx(448), sy(604));
-    ctx.lineTo(sx(690), sy(530));
-    ctx.lineTo(sx(734), sy(576));
+    ctx.moveTo(sx(298), sy(508));
+    ctx.lineTo(sx(346), sy(452));
+    ctx.lineTo(sx(372), sy(450));
     ctx.stroke();
+    ctx.strokeStyle = "rgba(173,164,170,0.9)";
+    ctx.lineWidth = Math.max(1, sx(8));
     ctx.beginPath();
-    ctx.arc(sx(724), sy(582), sx(30), 0, Math.PI * 2);
+    ctx.moveTo(sx(344), sy(452));
+    ctx.lineTo(sx(334), sy(664));
     ctx.stroke();
+    ctx.strokeStyle = "rgba(244,212,224,0.98)";
+    ctx.lineWidth = Math.max(1, sx(6));
+    ctx.beginPath();
+    ctx.moveTo(sx(334), sy(664));
+    ctx.lineTo(sx(308), sy(696));
+    ctx.stroke();
+    ctx.fillStyle = "rgba(230,150,180,0.82)";
+    roundedPath(ctx, sx(300), sy(690), sx(24), sy(12), sx(4));
+    ctx.fill();
 
-    ctx.fillStyle = "#5c3f4b";
-    ctx.font = `${Math.round(sx(30))}px sans-serif`;
-    ctx.fillText("Track List", sx(546), sy(650));
-    ctx.font = `${Math.round(sx(24))}px sans-serif`;
-    ctx.fillStyle = "rgba(92,63,75,0.72)";
-    ctx.fillText("今晚唱片里的 5 首歌", sx(546), sy(686));
+    songs.forEach((track, index) => {
+      const top = sy(490 + index * 84);
+      ctx.fillStyle = "rgba(255,255,255,0.54)";
+      roundedPath(ctx, sx(400), top, sx(226), sy(58), sx(8));
+      ctx.fill();
 
-    poster.result.playlist.tracks.slice(0, 5).forEach((track, index) => {
-      const top = sy(742 + index * 102);
-      ctx.fillStyle = "rgba(255,255,255,0.68)";
-      ctx.fillRect(sx(532), top - sy(28), sx(388), sy(78));
-      ctx.fillStyle = "#b86b88";
-      ctx.font = `${Math.round(sx(22))}px sans-serif`;
-      ctx.fillText(`0${index + 1}`.slice(-2), sx(556), top);
-      ctx.fillStyle = "#4f3943";
-      ctx.font = `${Math.round(sx(26))}px sans-serif`;
+      ctx.fillStyle = "#de7f9f";
+      ctx.font = `${Math.round(sx(19))}px sans-serif`;
+      ctx.fillText(`0${index + 1}`.slice(-2), sx(414), top + sy(22));
+      ctx.beginPath();
+      ctx.arc(sx(456), top + sy(24), sx(10), 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "rgba(255,255,255,0.96)";
+      ctx.beginPath();
+      ctx.moveTo(sx(452), top + sy(18));
+      ctx.lineTo(sx(452), top + sy(30));
+      ctx.lineTo(sx(460), top + sy(24));
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.fillStyle = "#41343d";
+      ctx.font = `${Math.round(sx(24))}px sans-serif`;
       const songTitle = track.song && track.song.title ? track.song.title : "未知曲目";
-      wrapPosterText(ctx, songTitle, sx(604), top - sy(4), sx(286), sy(28), 1);
-      ctx.fillStyle = "rgba(79,57,67,0.72)";
-      ctx.font = `${Math.round(sx(20))}px sans-serif`;
+      wrapPosterText(ctx, songTitle, sx(476), top + sy(20), sx(138), sy(24), 2);
+      ctx.fillStyle = "rgba(78,63,72,0.72)";
+      ctx.font = `${Math.round(sx(16))}px sans-serif`;
       const artist = track.song && track.song.artist ? track.song.artist : "";
-      wrapPosterText(ctx, artist, sx(604), top + sy(20), sx(270), sy(24), 1);
+      wrapPosterText(ctx, artist, sx(476), top + sy(44), sx(136), sy(18), 1);
     });
+
+    ctx.save();
+    ctx.translate(sx(70), sy(786));
+    ctx.rotate(-0.10);
+    ctx.fillStyle = "rgba(255,250,252,0.88)";
+    roundedPath(ctx, 0, 0, sx(278), sy(122), sx(10));
+    ctx.fill();
+    ctx.restore();
+
+    ctx.save();
+    ctx.translate(sx(96), sy(824));
+    ctx.rotate(-0.10);
+    ctx.fillStyle = "rgba(94,76,85,0.82)";
+    ctx.font = `${Math.round(sx(16))}px sans-serif`;
+    wrapPosterText(ctx, posterSubtitle || posterCopy.subline, 0, 0, sx(220), sy(22), 3);
+    ctx.restore();
+
+    ctx.fillStyle = "rgba(225,136,170,0.78)";
+    ctx.font = `${Math.round(sx(16))}px sans-serif`;
+    ctx.fillText("Enjoy the little moments.", sx(146), sy(710));
+
+    ctx.fillStyle = "rgba(255,255,255,0.58)";
+    ctx.fillRect(sx(32), sy(960), sx(656), sy(82));
+    ctx.fillStyle = "#d77095";
+    ctx.beginPath();
+    ctx.arc(sx(72), sy(1001), sx(10), 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "rgba(86,72,79,0.74)";
+    ctx.font = `${Math.round(sx(15))}px sans-serif`;
+    ctx.fillText("Life is better with music.", sx(92), sy(1006));
+    ctx.fillStyle = "#df7f9f";
+    ctx.beginPath();
+    ctx.arc(sx(360), sy(1000), sx(16), 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#ffffff";
+    ctx.beginPath();
+    ctx.moveTo(sx(356), sy(992));
+    ctx.lineTo(sx(356), sy(1008));
+    ctx.lineTo(sx(366), sy(1000));
+    ctx.closePath();
+    ctx.fill();
   },
 
   async ensurePosterImage() {
