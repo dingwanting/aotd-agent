@@ -46,9 +46,25 @@ Page({
   noop() {},
 
   handleStart() {
+    const avatarState = buildAvatarState();
+    if (avatarState.canSubmitProfile) {
+      clearAnswers();
+      clearQuestionDeck();
+      clearResult();
+      trackUserEvent({
+        type: "profile_reuse_before_question",
+        nickname: avatarState.nicknameDraft,
+        hasAvatar: Boolean(avatarState.avatarFileId || !isDefaultAvatar(avatarState.avatarUrl)),
+      }).catch(() => {});
+      wx.redirectTo({
+        url: "/pages/question/index?step=consumptionSource"
+      });
+      return;
+    }
+
     this.setData({
       showProfileSheet: true,
-      ...buildAvatarState(),
+      ...avatarState,
     });
   },
 

@@ -73,8 +73,8 @@
                   : '15秒试听'
             }}
           </view>
-          <view class="copy-button {{copiedTrackIndex === index ? 'copy-button--active' : ''}} {{supportsInlineAudio ? '' : 'copy-button--single'}}" data-index="{{index}}" bindtap="handleOpenFullTrack">
-            {{copiedTrackIndex === index ? '已进入完整版' : '听完整版'}}
+          <view class="copy-button {{copiedTrackIndex === index ? 'copy-button--active' : ''}} {{supportsInlineAudio ? '' : 'copy-button--single'}}" data-index="{{index}}" bindtap="handleCopyTrackKeyword">
+            {{copiedTrackIndex === index ? '已复制歌名' : '复制歌名'}}
           </view>
         </view>
       </view>

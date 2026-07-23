@@ -1,6 +1,5 @@
 const { STORAGE_KEYS, getStorage, clearAnswers, clearQuestionDeck, clearResult } = require("../../utils/storage");
 const { requestRecommendation, loadResultIfMatched, updateUserProfile, trackUserEvent } = require("../../utils/api");
-const { prefetchFullAudioTracks } = require("../../utils/full-audio");
 const {
   API_BASE_URL,
   USE_CLOUD_CONTAINER,
@@ -139,27 +138,6 @@ function buildAudioStreamUrl(track) {
   }
 
   return `${API_BASE_URL}/api/netease/audio/stream?${params.join("&")}`;
-}
-
-function buildFullPlayerPageUrl(track) {
-  const song = track && track.song ? track.song : {};
-  const params = [];
-  const keyword = buildTrackKeyword(track);
-
-  if (song.originalId) {
-    params.push(`originalId=${encodeURIComponent(String(song.originalId))}`);
-  }
-  if (song.title) {
-    params.push(`title=${encodeURIComponent(song.title)}`);
-  }
-  if (song.artist) {
-    params.push(`artist=${encodeURIComponent(song.artist)}`);
-  }
-  if (keyword) {
-    params.push(`keyword=${encodeURIComponent(keyword)}`);
-  }
-
-  return `/pages/full-player/index?${params.join("&")}`;
 }
 
 function buildAudioResolveParams(track) {
@@ -478,7 +456,6 @@ Page({
 
     const cached = loadResultIfMatched(answers);
     if (cached) {
-      this.prefetchTopFullTracks(cached);
       this.setData({
         loading: false,
         errorMessage: "",
@@ -507,7 +484,6 @@ Page({
 
     try {
       const result = await requestRecommendation(answers);
-      this.prefetchTopFullTracks(result);
       this.setData({
         loading: false,
         result: applyCoverTitle(result),
@@ -530,22 +506,6 @@ Page({
         errorMessage: error && error.message ? error.message : "生成歌单失败，请稍后再试。"
       });
     }
-  },
-
-  prefetchTopFullTracks(result) {
-    const tracks = result && result.playlist && Array.isArray(result.playlist.tracks) ? result.playlist.tracks : [];
-    const topTracks = tracks.slice(0, 5).map((track) => ({
-      title: track && track.song && track.song.title ? track.song.title : "",
-      artist: track && track.song && track.song.artist ? track.song.artist : "",
-      originalId: track && track.song && track.song.originalId ? String(track.song.originalId) : "",
-      keyword: buildTrackKeyword(track),
-    }));
-
-    if (!topTracks.length) {
-      return;
-    }
-
-    prefetchFullAudioTracks(topTracks).catch(() => {});
   },
 
   handleRetry() {
@@ -590,27 +550,41 @@ Page({
     });
   },
 
-  handleOpenFullTrack(event) {
+  handleCopyTrackKeyword(event) {
     const { index } = event.currentTarget.dataset;
     const result = this.data.result;
     const track = result && result.playlist && result.playlist.tracks ? result.playlist.tracks[index] : null;
     if (!track) {
       return;
     }
-
-    const playerUrl = buildFullPlayerPageUrl(track);
+    const keyword = buildTrackKeyword(track);
+    if (!keyword) {
+      wx.showToast({
+        title: "没有可复制的歌名",
+        icon: "none"
+      });
+      return;
+    }
     this.setData({
       copiedTrackIndex: Number(index)
     });
-    trackUserEvent({
-      type: "track_open_full_player",
-      trackRank: track.rank,
-      title: track.song && track.song.title,
-      artist: track.song && track.song.artist,
-      originalId: track.song && track.song.originalId ? String(track.song.originalId) : ""
-    }).catch(() => {});
-    wx.navigateTo({
-      url: playerUrl
+    wx.setClipboardData({
+      data: keyword,
+      success: () => {
+        trackUserEvent({
+          type: "track_copy_keyword",
+          trackRank: track.rank,
+          title: track.song && track.song.title,
+          artist: track.song && track.song.artist,
+          keyword
+        }).catch(() => {});
+      },
+      fail: () => {
+        wx.showToast({
+          title: "复制失败，请重试",
+          icon: "none"
+        });
+      }
     });
   },
 
@@ -830,6 +804,8 @@ Page({
     const sy = (value) => value * scale;
     const title = stripPlaylistPrefix(poster.result.playlist.title);
     const posterCopy = buildPosterShortCopy(poster.result);
+    const nickname = poster && poster.nickname ? String(poster.nickname).trim() : "";
+    const posterOwner = nickname ? `${nickname} 的 AOTD` : "你的 AOTD";
 
     ctx.clearRect(0, 0, POSTER_WIDTH, POSTER_HEIGHT);
     const bgGradient = ctx.createLinearGradient(0, 0, POSTER_WIDTH, POSTER_HEIGHT);
@@ -848,39 +824,57 @@ Page({
     ctx.fillStyle = "rgba(255,255,255,0.75)";
     ctx.fillRect(sx(78), sy(72), POSTER_WIDTH - sx(156), POSTER_HEIGHT - sy(144));
 
+    const profileY = sy(130);
+    if (poster.avatarImage) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(sx(146), profileY, sx(26), 0, Math.PI * 2);
+      ctx.clip();
+      ctx.drawImage(poster.avatarImage, sx(120), profileY - sx(26), sx(52), sx(52));
+      ctx.restore();
+    } else {
+      ctx.fillStyle = "rgba(255,255,255,0.96)";
+      ctx.beginPath();
+      ctx.arc(sx(146), profileY, sx(26), 0, Math.PI * 2);
+      ctx.fill();
+    }
+
     ctx.fillStyle = "#b86b88";
     ctx.font = `${Math.round(sx(24))}px sans-serif`;
-    ctx.fillText("AOTD", sx(120), sy(150));
+    ctx.fillText(posterOwner, sx(188), sy(138));
+    ctx.fillStyle = "rgba(92,63,75,0.66)";
+    ctx.font = `${Math.round(sx(22))}px sans-serif`;
+    ctx.fillText("今晚这张私人歌单", sx(188), sy(170));
 
     ctx.fillStyle = "#5c3f4b";
-    ctx.font = `${Math.round(sx(72))}px sans-serif`;
-    const nextY = wrapPosterText(ctx, title, sx(120), sy(246), POSTER_WIDTH - sx(240), sy(84), 2);
+    ctx.font = `${Math.round(sx(64))}px sans-serif`;
+    const nextY = wrapPosterText(ctx, title, sx(120), sy(244), POSTER_WIDTH - sx(240), sy(74), 2);
 
     ctx.fillStyle = "rgba(92,63,75,0.72)";
-    ctx.font = `${Math.round(sx(28))}px sans-serif`;
+    ctx.font = `${Math.round(sx(26))}px sans-serif`;
     wrapPosterText(
       ctx,
       posterCopy.kicker,
       sx(120),
-      nextY + sy(26),
+      nextY + sy(18),
       POSTER_WIDTH - sx(240),
-      sy(42),
+      sy(38),
       2,
     );
     wrapPosterText(
       ctx,
       posterCopy.subline,
       sx(120),
-      nextY + sy(94),
+      nextY + sy(72),
       POSTER_WIDTH - sx(240),
-      sy(38),
+      sy(34),
       2,
     );
 
     const recordCenterX = sx(330);
-    const recordCenterY = sy(800);
-    const recordRadius = sx(220);
-    const recordGradient = ctx.createLinearGradient(sx(110), sy(580), sx(550), sy(1020));
+    const recordCenterY = sy(720);
+    const recordRadius = sx(198);
+    const recordGradient = ctx.createLinearGradient(sx(120), sy(520), sx(520), sy(920));
     recordGradient.addColorStop(0, "#2d2930");
     recordGradient.addColorStop(1, "#111015");
     ctx.fillStyle = recordGradient;
@@ -918,36 +912,36 @@ Page({
     ctx.strokeStyle = "rgba(255,255,255,0.55)";
     ctx.lineWidth = Math.max(1, sx(3));
     ctx.beginPath();
-    ctx.moveTo(sx(460), sy(660));
-    ctx.lineTo(sx(710), sy(560));
-    ctx.lineTo(sx(758), sy(614));
+    ctx.moveTo(sx(448), sy(604));
+    ctx.lineTo(sx(690), sy(530));
+    ctx.lineTo(sx(734), sy(576));
     ctx.stroke();
     ctx.beginPath();
-    ctx.arc(sx(742), sy(620), sx(34), 0, Math.PI * 2);
+    ctx.arc(sx(724), sy(582), sx(30), 0, Math.PI * 2);
     ctx.stroke();
 
     ctx.fillStyle = "#5c3f4b";
     ctx.font = `${Math.round(sx(30))}px sans-serif`;
-    ctx.fillText("Track List", sx(560), sy(690));
-    ctx.font = `${Math.round(sx(26))}px sans-serif`;
+    ctx.fillText("Track List", sx(546), sy(650));
+    ctx.font = `${Math.round(sx(24))}px sans-serif`;
     ctx.fillStyle = "rgba(92,63,75,0.72)";
-    ctx.fillText("今晚唱片里的 5 首歌", sx(560), sy(730));
+    ctx.fillText("今晚唱片里的 5 首歌", sx(546), sy(686));
 
     poster.result.playlist.tracks.slice(0, 5).forEach((track, index) => {
-      const top = sy(790 + index * 128);
+      const top = sy(742 + index * 102);
       ctx.fillStyle = "rgba(255,255,255,0.68)";
-      ctx.fillRect(sx(540), top - sy(34), sx(380), sy(92));
+      ctx.fillRect(sx(532), top - sy(28), sx(388), sy(78));
       ctx.fillStyle = "#b86b88";
-      ctx.font = `${Math.round(sx(24))}px sans-serif`;
-      ctx.fillText(`0${index + 1}`.slice(-2), sx(568), top);
-      ctx.fillStyle = "#4f3943";
-      ctx.font = `${Math.round(sx(30))}px sans-serif`;
-      const songTitle = track.song && track.song.title ? track.song.title : "未知曲目";
-      wrapPosterText(ctx, songTitle, sx(620), top - sy(8), sx(270), sy(34), 1);
-      ctx.fillStyle = "rgba(79,57,67,0.72)";
       ctx.font = `${Math.round(sx(22))}px sans-serif`;
+      ctx.fillText(`0${index + 1}`.slice(-2), sx(556), top);
+      ctx.fillStyle = "#4f3943";
+      ctx.font = `${Math.round(sx(26))}px sans-serif`;
+      const songTitle = track.song && track.song.title ? track.song.title : "未知曲目";
+      wrapPosterText(ctx, songTitle, sx(604), top - sy(4), sx(286), sy(28), 1);
+      ctx.fillStyle = "rgba(79,57,67,0.72)";
+      ctx.font = `${Math.round(sx(20))}px sans-serif`;
       const artist = track.song && track.song.artist ? track.song.artist : "";
-      wrapPosterText(ctx, artist, sx(620), top + sy(28), sx(250), sy(30), 1);
+      wrapPosterText(ctx, artist, sx(604), top + sy(20), sx(270), sy(24), 1);
     });
   },
 
