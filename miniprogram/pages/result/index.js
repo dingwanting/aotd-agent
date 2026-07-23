@@ -20,6 +20,7 @@ const POSTER_WIDTH = 720;
 const POSTER_HEIGHT = 1080;
 const POSTER_SCALE = POSTER_WIDTH / 1080;
 const POSTER_TEMPLATE_PATH = "/assets/poster/aotd-report-template.jpg";
+const POSTER_QRCODE_PATH = "/assets/poster/aotd-mini-qrcode.png";
 const POSTER_TEMPLATE_WIDTH = 1020;
 const POSTER_TEMPLATE_HEIGHT = 1541;
 
@@ -892,6 +893,17 @@ Page({
       const artist = track.song && track.song.artist ? track.song.artist : "";
       wrapPosterText(ctx, artist, tx(536) + 80, top + ty(50), tx(206), ty(18), 1);
     });
+
+    if (poster.qrCodeImage) {
+      const qrSize = tx(190);
+      const qrX = POSTER_WIDTH - qrSize - tx(74);
+      const qrY = POSTER_HEIGHT - qrSize - ty(72) - 90;
+      ctx.save();
+      // Use multiply blend so the white square background disappears on the poster.
+      ctx.globalCompositeOperation = "multiply";
+      ctx.drawImage(poster.qrCodeImage, qrX, qrY, qrSize, qrSize);
+      ctx.restore();
+    }
   },
 
   async ensurePosterImage() {
@@ -927,6 +939,13 @@ Page({
         });
         return null;
       });
+      const qrCodeImage = await this.loadCanvasImage(posterCanvas.canvas, POSTER_QRCODE_PATH).catch((error) => {
+        console.warn("[aotd] poster qrcode load failed", {
+          errMsg: error && error.errMsg ? error.errMsg : "",
+          message: error && error.message ? error.message : "",
+        });
+        return null;
+      });
       const avatarPath = await this.resolvePosterAvatarPath().catch(() => "");
       const avatarImage = avatarPath
         ? await this.loadCanvasImage(posterCanvas.canvas, avatarPath).catch((error) => {
@@ -941,6 +960,7 @@ Page({
         result,
         nickname: this.data.profileNickname,
         templateImage,
+        qrCodeImage,
         avatarImage,
       });
       const imagePath = await this.canvasToPosterFilePath(3);
