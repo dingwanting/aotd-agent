@@ -19,6 +19,7 @@ const POSTER_CANVAS_ID = "aotdPosterCanvas";
 const POSTER_WIDTH = 720;
 const POSTER_HEIGHT = 1080;
 const POSTER_SCALE = POSTER_WIDTH / 1080;
+const POSTER_TEMPLATE_PATH = "/assets/poster/aotd-report-template.jpg";
 
 function normalizeCoverTitle(rawTitle) {
   const title = String(rawTitle || "").trim();
@@ -106,21 +107,6 @@ function wrapPosterText(ctx, text, x, y, maxWidth, lineHeight, maxLines) {
 function buildPosterOwnerLine(nickname) {
   const name = String(nickname || "").trim();
   return name ? `${name} 的 AOTD` : "你的 AOTD";
-}
-
-function roundedPath(ctx, x, y, width, height, radius) {
-  const r = Math.max(0, Math.min(radius, width / 2, height / 2));
-  ctx.beginPath();
-  ctx.moveTo(x + r, y);
-  ctx.lineTo(x + width - r, y);
-  ctx.quadraticCurveTo(x + width, y, x + width, y + r);
-  ctx.lineTo(x + width, y + height - r);
-  ctx.quadraticCurveTo(x + width, y + height, x + width - r, y + height);
-  ctx.lineTo(x + r, y + height);
-  ctx.quadraticCurveTo(x, y + height, x, y + height - r);
-  ctx.lineTo(x, y + r);
-  ctx.quadraticCurveTo(x, y, x + r, y);
-  ctx.closePath();
 }
 
 function getAnswers() {
@@ -819,231 +805,94 @@ Page({
   },
 
   drawPoster(ctx, poster) {
-    const scale = POSTER_SCALE;
-    const sx = (value) => value * scale;
-    const sy = (value) => value * scale;
-    const title = stripPlaylistPrefix(poster.result.playlist.title);
-    const posterCopy = buildPosterShortCopy(poster.result);
-    const nickname = poster && poster.nickname ? String(poster.nickname).trim() : "";
-    const posterOwner = buildPosterOwnerLine(nickname);
-    const posterSubtitle =
-      poster && poster.result && poster.result.playlist && poster.result.playlist.subtitle
-        ? String(poster.result.playlist.subtitle).trim()
-        : "";
-    const songs = poster.result.playlist.tracks.slice(0, 5);
+    const templateScale = POSTER_WIDTH / 1024;
+    const tx = (value) => value * templateScale;
+    const ty = (value) => value * templateScale;
 
-    ctx.clearRect(0, 0, POSTER_WIDTH, POSTER_HEIGHT);
-    const bgGradient = ctx.createLinearGradient(0, 0, POSTER_WIDTH, POSTER_HEIGHT);
-    bgGradient.addColorStop(0, "#fff8fb");
-    bgGradient.addColorStop(0.5, "#f8edf1");
-    bgGradient.addColorStop(1, "#f3dfe8");
-    ctx.fillStyle = bgGradient;
-    ctx.fillRect(0, 0, POSTER_WIDTH, POSTER_HEIGHT);
+    if (poster.templateImage) {
+      ctx.drawImage(poster.templateImage, 0, 0, POSTER_WIDTH, POSTER_HEIGHT);
+    } else {
+      ctx.fillStyle = "#f8edf1";
+      ctx.fillRect(0, 0, POSTER_WIDTH, POSTER_HEIGHT);
+    }
 
-    const glow = ctx.createRadialGradient(sx(540), sy(250), sx(30), sx(540), sy(250), sx(330));
-    glow.addColorStop(0, "rgba(255,255,255,0.68)");
-    glow.addColorStop(1, "rgba(255,255,255,0)");
-    ctx.fillStyle = glow;
-    ctx.fillRect(0, 0, POSTER_WIDTH, POSTER_HEIGHT);
-    ctx.shadowColor = "rgba(206, 116, 147, 0.10)";
-    ctx.shadowBlur = sx(30);
-    ctx.fillStyle = "rgba(255,255,255,0.82)";
-    roundedPath(ctx, sx(32), sy(42), sx(656), sy(1000), sx(18));
-    ctx.fill();
-    ctx.shadowColor = "transparent";
-    ctx.shadowBlur = 0;
+    ctx.fillStyle = "rgba(255, 247, 250, 0.88)";
+    ctx.fillRect(tx(52), ty(60), tx(320), ty(330));
+    ctx.fillRect(tx(438), ty(410), tx(284), ty(408));
+    ctx.fillRect(tx(102), ty(1070), tx(360), ty(110));
 
-    const profileY = sy(96);
+    const profileY = ty(94);
     if (poster.avatarImage) {
       ctx.save();
       ctx.beginPath();
-      ctx.arc(sx(76), profileY, sx(21), 0, Math.PI * 2);
+      ctx.arc(tx(82), profileY, tx(24), 0, Math.PI * 2);
       ctx.clip();
-      ctx.drawImage(poster.avatarImage, sx(55), profileY - sx(21), sx(42), sx(42));
+      ctx.drawImage(poster.avatarImage, tx(58), profileY - tx(24), tx(48), tx(48));
       ctx.restore();
-    } else {
-      ctx.fillStyle = "rgba(255,255,255,0.96)";
-      ctx.beginPath();
-      ctx.arc(sx(76), profileY, sx(21), 0, Math.PI * 2);
-      ctx.fill();
     }
 
     ctx.fillStyle = "#d96e94";
-    ctx.font = `${Math.round(sx(22))}px sans-serif`;
-    ctx.fillText(posterOwner, sx(106), sy(100));
-    ctx.fillStyle = "rgba(99,77,87,0.7)";
-    ctx.font = `${Math.round(sx(18))}px sans-serif`;
-    ctx.fillText("今晚这张私人歌单", sx(106), sy(126));
+    ctx.font = `${Math.round(tx(25))}px sans-serif`;
+    ctx.fillText(posterOwner, tx(118), ty(96));
+    ctx.fillStyle = "rgba(91, 71, 81, 0.72)";
+    ctx.font = `${Math.round(tx(19))}px sans-serif`;
+    ctx.fillText("今晚这张私人歌单", tx(118), ty(128));
 
-    ctx.save();
-    ctx.translate(sx(596), sy(116));
-    ctx.rotate(-0.22);
-    ctx.strokeStyle = "rgba(225,136,170,0.88)";
-    ctx.lineWidth = Math.max(1, sx(1.8));
-    ctx.beginPath();
-    ctx.arc(0, 0, sx(58), 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(0, -sx(18));
-    ctx.lineTo(sx(6), -sx(6));
-    ctx.lineTo(sx(18), -sx(2));
-    ctx.lineTo(sx(8), sx(8));
-    ctx.lineTo(sx(12), sx(20));
-    ctx.lineTo(0, sx(12));
-    ctx.lineTo(-sx(12), sx(20));
-    ctx.lineTo(-sx(8), sx(8));
-    ctx.lineTo(-sx(18), -sx(2));
-    ctx.lineTo(-sx(6), -sx(6));
-    ctx.closePath();
-    ctx.fillStyle = "rgba(225,136,170,0.72)";
-    ctx.fill();
-    ctx.restore();
+    ctx.fillStyle = "#e38aaa";
+    ctx.font = `600 ${Math.round(tx(58))}px sans-serif`;
+    const titleBottom = wrapPosterText(ctx, title, tx(58), ty(190), tx(390), ty(70), 3);
 
-    ctx.fillStyle = "#e387a9";
-    ctx.font = `600 ${Math.round(sx(52))}px sans-serif`;
-    const titleBottom = wrapPosterText(ctx, title, sx(62), sy(186), sx(320), sy(62), 3);
-
-    ctx.fillStyle = "rgba(98,80,90,0.82)";
-    ctx.font = `${Math.round(sx(18))}px sans-serif`;
-    const copyBottom = wrapPosterText(ctx, posterCopy.kicker, sx(62), titleBottom + sy(22), sx(300), sy(28), 2);
-    wrapPosterText(ctx, posterCopy.subline, sx(62), copyBottom + sy(8), sx(300), sy(26), 2);
-
-    ctx.fillStyle = "rgba(225,136,170,0.92)";
-    ctx.font = `${Math.round(sx(20))}px sans-serif`;
-    ctx.fillText("Track List", sx(408), sy(428));
-    ctx.fillStyle = "rgba(98,80,90,0.74)";
-    ctx.font = `${Math.round(sx(18))}px sans-serif`;
-    ctx.fillText("今晚唱片里的 5 首歌", sx(408), sy(454));
-
-    const recordCenterX = sx(208);
-    const recordCenterY = sy(602);
-    const recordRadius = sx(152);
-    const recordGradient = ctx.createRadialGradient(recordCenterX - sx(42), recordCenterY - sx(50), sx(16), recordCenterX, recordCenterY, recordRadius);
-    recordGradient.addColorStop(0, "#2d2530");
-    recordGradient.addColorStop(0.55, "#171322");
-    recordGradient.addColorStop(1, "#08070d");
-    ctx.shadowColor = "rgba(25, 17, 26, 0.24)";
-    ctx.shadowBlur = sx(24);
-    ctx.beginPath();
-    ctx.arc(recordCenterX, recordCenterY, recordRadius, 0, Math.PI * 2);
-    ctx.fillStyle = recordGradient;
-    ctx.fill();
-    ctx.shadowColor = "transparent";
-    ctx.shadowBlur = 0;
-
-    ctx.strokeStyle = "rgba(255,255,255,0.08)";
-    ctx.lineWidth = Math.max(1, sx(1.4));
-    for (let ring = 0; ring < 8; ring += 1) {
-      ctx.beginPath();
-      ctx.arc(recordCenterX, recordCenterY, sx(52 + ring * 14), 0, Math.PI * 2);
-      ctx.stroke();
-    }
-
-    ctx.fillStyle = "#f4d5e1";
-    ctx.beginPath();
-    ctx.arc(recordCenterX, recordCenterY, sx(56), 0, Math.PI * 2);
-    ctx.fill();
+    ctx.fillStyle = "rgba(90, 73, 82, 0.84)";
+    ctx.font = `${Math.round(tx(18))}px sans-serif`;
+    const copyBottom = wrapPosterText(ctx, posterCopy.kicker, tx(60), titleBottom + ty(22), tx(330), ty(30), 2);
+    wrapPosterText(ctx, posterCopy.subline, tx(60), copyBottom + ty(8), tx(330), ty(28), 2);
 
     if (poster.avatarImage) {
       ctx.save();
       ctx.beginPath();
-      ctx.arc(recordCenterX, recordCenterY, sx(36), 0, Math.PI * 2);
+      ctx.arc(tx(228), ty(638), tx(66), 0, Math.PI * 2);
       ctx.clip();
-      ctx.drawImage(poster.avatarImage, recordCenterX - sx(36), recordCenterY - sx(36), sx(72), sx(72));
+      ctx.drawImage(poster.avatarImage, tx(162), ty(572), tx(132), tx(132));
       ctx.restore();
     }
 
-    ctx.strokeStyle = "rgba(245,235,240,0.92)";
-    ctx.lineWidth = Math.max(1, sx(3));
-    ctx.beginPath();
-    ctx.moveTo(sx(298), sy(508));
-    ctx.lineTo(sx(346), sy(452));
-    ctx.lineTo(sx(372), sy(450));
-    ctx.stroke();
-    ctx.strokeStyle = "rgba(173,164,170,0.9)";
-    ctx.lineWidth = Math.max(1, sx(8));
-    ctx.beginPath();
-    ctx.moveTo(sx(344), sy(452));
-    ctx.lineTo(sx(334), sy(664));
-    ctx.stroke();
-    ctx.strokeStyle = "rgba(244,212,224,0.98)";
-    ctx.lineWidth = Math.max(1, sx(6));
-    ctx.beginPath();
-    ctx.moveTo(sx(334), sy(664));
-    ctx.lineTo(sx(308), sy(696));
-    ctx.stroke();
-    ctx.fillStyle = "rgba(230,150,180,0.82)";
-    roundedPath(ctx, sx(300), sy(690), sx(24), sy(12), sx(4));
-    ctx.fill();
+    ctx.fillStyle = "rgba(224, 131, 165, 0.95)";
+    ctx.font = `${Math.round(tx(18))}px sans-serif`;
+    ctx.fillText("Track List", tx(432), ty(425));
+    ctx.fillStyle = "rgba(96, 78, 87, 0.74)";
+    ctx.font = `${Math.round(tx(17))}px sans-serif`;
+    ctx.fillText("今晚唱片里的 5 首歌", tx(432), ty(460));
 
     songs.forEach((track, index) => {
-      const top = sy(490 + index * 84);
-      ctx.fillStyle = "rgba(255,255,255,0.54)";
-      roundedPath(ctx, sx(400), top, sx(226), sy(58), sx(8));
-      ctx.fill();
-
-      ctx.fillStyle = "#de7f9f";
-      ctx.font = `${Math.round(sx(19))}px sans-serif`;
-      ctx.fillText(`0${index + 1}`.slice(-2), sx(414), top + sy(22));
-      ctx.beginPath();
-      ctx.arc(sx(456), top + sy(24), sx(10), 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = "rgba(255,255,255,0.96)";
-      ctx.beginPath();
-      ctx.moveTo(sx(452), top + sy(18));
-      ctx.lineTo(sx(452), top + sy(30));
-      ctx.lineTo(sx(460), top + sy(24));
-      ctx.closePath();
-      ctx.fill();
+      const top = ty(508 + index * 88);
+      ctx.fillStyle = "#db7c9e";
+      ctx.font = `${Math.round(tx(18))}px sans-serif`;
+      ctx.fillText(`0${index + 1}`.slice(-2), tx(442), top + ty(18));
 
       ctx.fillStyle = "#41343d";
-      ctx.font = `${Math.round(sx(24))}px sans-serif`;
+      ctx.font = `${Math.round(tx(24))}px sans-serif`;
       const songTitle = track.song && track.song.title ? track.song.title : "未知曲目";
-      wrapPosterText(ctx, songTitle, sx(476), top + sy(20), sx(138), sy(24), 2);
+      wrapPosterText(ctx, songTitle, tx(502), top + ty(16), tx(188), ty(24), 2);
+
       ctx.fillStyle = "rgba(78,63,72,0.72)";
-      ctx.font = `${Math.round(sx(16))}px sans-serif`;
+      ctx.font = `${Math.round(tx(16))}px sans-serif`;
       const artist = track.song && track.song.artist ? track.song.artist : "";
-      wrapPosterText(ctx, artist, sx(476), top + sy(44), sx(136), sy(18), 1);
+      wrapPosterText(ctx, artist, tx(502), top + ty(48), tx(188), ty(18), 1);
     });
 
-    ctx.save();
-    ctx.translate(sx(70), sy(786));
-    ctx.rotate(-0.10);
-    ctx.fillStyle = "rgba(255,250,252,0.88)";
-    roundedPath(ctx, 0, 0, sx(278), sy(122), sx(10));
-    ctx.fill();
-    ctx.restore();
+    ctx.fillStyle = "rgba(92, 76, 85, 0.82)";
+    ctx.font = `${Math.round(tx(16))}px sans-serif`;
+    wrapPosterText(ctx, posterSubtitle || posterCopy.subline, tx(86), ty(1044), tx(310), ty(24), 3);
 
-    ctx.save();
-    ctx.translate(sx(96), sy(824));
-    ctx.rotate(-0.10);
-    ctx.fillStyle = "rgba(94,76,85,0.82)";
-    ctx.font = `${Math.round(sx(16))}px sans-serif`;
-    wrapPosterText(ctx, posterSubtitle || posterCopy.subline, 0, 0, sx(220), sy(22), 3);
-    ctx.restore();
-
-    ctx.fillStyle = "rgba(225,136,170,0.78)";
-    ctx.font = `${Math.round(sx(16))}px sans-serif`;
-    ctx.fillText("Enjoy the little moments.", sx(146), sy(710));
-
-    ctx.fillStyle = "rgba(255,255,255,0.58)";
-    ctx.fillRect(sx(32), sy(960), sx(656), sy(82));
-    ctx.fillStyle = "#d77095";
+    ctx.fillStyle = "#d96e94";
     ctx.beginPath();
-    ctx.arc(sx(72), sy(1001), sx(10), 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = "rgba(86,72,79,0.74)";
-    ctx.font = `${Math.round(sx(15))}px sans-serif`;
-    ctx.fillText("Life is better with music.", sx(92), sy(1006));
-    ctx.fillStyle = "#df7f9f";
-    ctx.beginPath();
-    ctx.arc(sx(360), sy(1000), sx(16), 0, Math.PI * 2);
+    ctx.arc(tx(378), ty(1126), tx(18), 0, Math.PI * 2);
     ctx.fill();
     ctx.fillStyle = "#ffffff";
     ctx.beginPath();
-    ctx.moveTo(sx(356), sy(992));
-    ctx.lineTo(sx(356), sy(1008));
-    ctx.lineTo(sx(366), sy(1000));
+    ctx.moveTo(tx(372), ty(1118));
+    ctx.lineTo(tx(372), ty(1134));
+    ctx.lineTo(tx(384), ty(1126));
     ctx.closePath();
     ctx.fill();
   },
@@ -1074,6 +923,13 @@ Page({
 
       const posterCanvas = await this.ensurePosterCanvas();
       const ctx = posterCanvas.ctx;
+      const templateImage = await this.loadCanvasImage(posterCanvas.canvas, POSTER_TEMPLATE_PATH).catch((error) => {
+        console.warn("[aotd] poster template load failed", {
+          errMsg: error && error.errMsg ? error.errMsg : "",
+          message: error && error.message ? error.message : "",
+        });
+        return null;
+      });
       const avatarPath = await this.resolvePosterAvatarPath().catch(() => "");
       const avatarImage = avatarPath
         ? await this.loadCanvasImage(posterCanvas.canvas, avatarPath).catch((error) => {
@@ -1087,6 +943,7 @@ Page({
       this.drawPoster(ctx, {
         result,
         nickname: this.data.profileNickname,
+        templateImage,
         avatarImage,
       });
       const imagePath = await this.canvasToPosterFilePath(3);
