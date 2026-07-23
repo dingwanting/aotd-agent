@@ -295,6 +295,7 @@ async function handleWxLogin(req: HttpRequest, res: HttpResponse) {
       userId: record.userId,
       openid: exchange.data.openid,
       nickname: nickname || record.nickname || "朋友",
+      avatarFileId: record.avatarFileId,
       isAnonymous: false,
       createdAt: record.createdAt,
       lastSeenAt: new Date().toISOString(),
