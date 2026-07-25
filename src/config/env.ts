@@ -7,6 +7,7 @@ export interface AppEnv {
   aotdSongProvider: string;
   aotdSongApiKey: string;
   aotdSongBaseUrl: string;
+  aotdSongFileUploadBaseUrl: string;
   aotdSongModel: string;
   aotdSongCreatePath: string;
   aotdSongUploadCreatePath: string;
@@ -41,6 +42,7 @@ export function loadEnv(): AppEnv {
     aotdSongProvider: process.env.AOTD_SONG_PROVIDER || "demo",
     aotdSongApiKey: process.env.AOTD_SONG_API_KEY || "",
     aotdSongBaseUrl: process.env.AOTD_SONG_BASE_URL || "https://api.sunoapi.org",
+    aotdSongFileUploadBaseUrl: process.env.AOTD_SONG_FILE_UPLOAD_BASE_URL || "https://sunoapiorg.redpandaai.co",
     aotdSongModel: process.env.AOTD_SONG_MODEL || "V4_5ALL",
     aotdSongCreatePath: process.env.AOTD_SONG_CREATE_PATH || "/api/v1/generate",
     aotdSongUploadCreatePath: process.env.AOTD_SONG_UPLOAD_CREATE_PATH || "/api/v1/generate/upload-cover",

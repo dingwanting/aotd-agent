@@ -1,13 +1,5 @@
-import crypto from "node:crypto";
-import fs from "node:fs/promises";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
-
 import { loadEnv } from "../config/env.js";
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const projectRoot = path.resolve(__dirname, "..", "..");
-const generatedAudioRoot = path.join(projectRoot, "web", "generated", "aotd-song", "voice-persona");
+import { uploadBase64FileToSuno } from "./suno-file-transfer.js";
 const CREATE_TIMEOUT_MS = 20000;
 const STATUS_TIMEOUT_MS = 15000;
 const POLL_INTERVAL_MS = 2500;
@@ -58,18 +50,6 @@ export interface FinalizedSunoVoicePersona {
   status: string;
 }
 
-function normalizeBaseUrl(baseUrl: string): string {
-  return baseUrl.replace(/\/+$/, "");
-}
-
-function sanitizeName(value: string): string {
-  return value.replace(/[^a-z0-9-_]/gi, "-").replace(/-+/g, "-").replace(/^-|-$/g, "").slice(0, 80);
-}
-
-function toPosixPath(filePath: string): string {
-  return filePath.split(path.sep).join("/");
-}
-
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -89,64 +69,23 @@ function extractErrorMessage(payload: unknown, fallback: string): string {
   return fallback;
 }
 
-function isUsablePublicOrigin(origin: string): boolean {
-  try {
-    const targetUrl = new URL(origin);
-    const hostname = targetUrl.hostname.toLowerCase();
-    if (!/^https?:$/i.test(targetUrl.protocol)) {
-      return false;
-    }
-    if (hostname === "localhost" || hostname === "127.0.0.1" || hostname === "example.com") {
-      return false;
-    }
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function resolvePublicBaseUrl(env: ReturnType<typeof loadEnv>): string {
-  if (env.aotdPublicBaseUrl && isUsablePublicOrigin(env.aotdPublicBaseUrl)) {
-    return normalizeBaseUrl(env.aotdPublicBaseUrl);
-  }
-  if (env.aotdSongCallbackUrl) {
-    try {
-      const callbackUrl = new URL(env.aotdSongCallbackUrl);
-      if (isUsablePublicOrigin(callbackUrl.origin)) {
-        return normalizeBaseUrl(callbackUrl.origin);
-      }
-    } catch {
-      return "";
-    }
-  }
-  return "";
-}
-
-async function persistPublicVoiceFile(params: {
+async function uploadVoiceFile(params: {
+  apiKey: string;
   fileBase64: string;
   fileFormat: string;
   prefix: string;
   titleText: string;
 }): Promise<{ publicPath: string; publicUrl: string }> {
-  const env = loadEnv();
-  const publicBaseUrl = resolvePublicBaseUrl(env);
-  if (!publicBaseUrl) {
-    throw new Error("请先配置可公网访问的 AOTD_PUBLIC_BASE_URL 或 AOTD_SONG_CALLBACK_URL");
-  }
-  const extension = sanitizeName(params.fileFormat || "mp3") || "mp3";
-  const token = crypto
-    .createHash("sha1")
-    .update(`${params.prefix}|${params.titleText}|${params.fileBase64.slice(0, 128)}`)
-    .digest("hex")
-    .slice(0, 16);
-  const fileName = `${sanitizeName(params.titleText || params.prefix) || params.prefix}-${token}.${extension}`;
-  const relativePath = `/generated/aotd-song/voice-persona/${params.prefix}/${fileName}`;
-  const absolutePath = path.join(generatedAudioRoot, params.prefix, fileName);
-  await fs.mkdir(path.dirname(absolutePath), { recursive: true });
-  await fs.writeFile(absolutePath, Buffer.from(params.fileBase64, "base64"));
+  const uploaded = await uploadBase64FileToSuno({
+    apiKey: params.apiKey,
+    fileBase64: params.fileBase64,
+    fileFormat: params.fileFormat,
+    uploadPath: `aotd-song/voice-persona/${params.prefix}`,
+    fileNamePrefix: `${params.titleText || params.prefix}-${params.prefix}`,
+  });
   return {
-    publicPath: relativePath,
-    publicUrl: `${publicBaseUrl}${toPosixPath(relativePath)}`,
+    publicPath: uploaded.downloadUrl,
+    publicUrl: uploaded.downloadUrl,
   };
 }
 
@@ -184,12 +123,12 @@ async function getJson(url: string, apiKey: string): Promise<VoiceValidateRespon
 
 function resolveVoiceApiConfig() {
   const env = loadEnv();
-  if (!env.aotdSongApiKey || !env.aotdSongBaseUrl) {
-    throw new Error("AOTD_SONG_API_KEY 或 AOTD_SONG_BASE_URL 未配置");
+  if (!env.aotdSongApiKey || !env.aotdSongBaseUrl || !env.aotdSongFileUploadBaseUrl) {
+    throw new Error("AOTD_SONG_API_KEY、AOTD_SONG_BASE_URL 或 AOTD_SONG_FILE_UPLOAD_BASE_URL 未配置");
   }
   return {
     env,
-    baseUrl: normalizeBaseUrl(env.aotdSongBaseUrl),
+    baseUrl: env.aotdSongBaseUrl.replace(/\/+$/, ""),
     apiKey: env.aotdSongApiKey,
     callbackUrl: env.aotdSongCallbackUrl || "https://example.com/api/aotd-song/callback",
   };
@@ -203,7 +142,8 @@ export async function prepareSunoVoicePersona(
   params: PrepareSunoVoicePersonaParams,
 ): Promise<PreparedSunoVoicePersona> {
   const { baseUrl, apiKey, callbackUrl } = resolveVoiceApiConfig();
-  const sourceVoice = await persistPublicVoiceFile({
+  const sourceVoice = await uploadVoiceFile({
+    apiKey,
     fileBase64: params.voiceBase64,
     fileFormat: params.voiceFormat,
     prefix: "source",
@@ -248,7 +188,8 @@ export async function finalizeSunoVoicePersona(
   params: FinalizeSunoVoicePersonaParams,
 ): Promise<FinalizedSunoVoicePersona> {
   const { baseUrl, apiKey, callbackUrl } = resolveVoiceApiConfig();
-  const verifyVoice = await persistPublicVoiceFile({
+  const verifyVoice = await uploadVoiceFile({
+    apiKey,
     fileBase64: params.verifyVoiceBase64,
     fileFormat: params.verifyVoiceFormat,
     prefix: "verify",

@@ -4,6 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { loadEnv } from "../config/env.js";
+import { cacheRemoteAudioToLocal, uploadBase64FileToSuno } from "./suno-file-transfer.js";
 
 import type { GenerateAotdSongParams, GeneratedAotdSong } from "./aotd-song-provider.js";
 
@@ -190,10 +191,16 @@ async function persistVoiceSample(
   if (!request.voiceBase64) {
     return null;
   }
-  const publicBaseUrl = resolvePublicBaseUrl(env);
-  if (!publicBaseUrl) {
+  if (!env.aotdSongApiKey || !env.aotdSongFileUploadBaseUrl) {
     return null;
   }
+  const uploaded = await uploadBase64FileToSuno({
+    apiKey: env.aotdSongApiKey,
+    fileBase64: request.voiceBase64,
+    fileFormat: request.voiceFormat || "mp3",
+    uploadPath: "aotd-song/voice-samples",
+    fileNamePrefix: request.titleText || "aotd-voice",
+  });
   const voiceFormat = sanitizeName(request.voiceFormat || "mp3") || "mp3";
   const fileToken = crypto
     .createHash("sha1")
@@ -203,13 +210,12 @@ async function persistVoiceSample(
   const fileName = `${sanitizeName(request.titleText || "aotd-voice") || "aotd-voice"}-${fileToken}.${voiceFormat}`;
   const relativePath = `/generated/aotd-song/voice-samples/${fileName}`;
   const targetPath = path.join(generatedAudioRoot, "voice-samples", fileName);
-
   await fs.mkdir(path.dirname(targetPath), { recursive: true });
   await fs.writeFile(targetPath, Buffer.from(request.voiceBase64, "base64"));
 
   return {
     publicPath: relativePath,
-    publicUrl: `${publicBaseUrl}${toPosixPath(relativePath)}`,
+    publicUrl: uploaded.downloadUrl,
   };
 }
 
@@ -394,6 +400,17 @@ export async function generateAotdSongViaRemoteProvider(
 
   const directSong = normalizeGeneratedSong(createPayload, params);
   if (directSong) {
+    try {
+      directSong.audioPath = await cacheRemoteAudioToLocal({
+        remoteUrl: directSong.audioPath,
+        targetSubDir: "remote-audio",
+        fileNamePrefix: directSong.title || params.titleText || "aotd-song",
+      });
+    } catch (error) {
+      console.warn("[aotd-song] failed to cache remote audio, keep original url", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
     if (voiceUpload) {
       directSong.voiceSamplePath = voiceUpload.publicPath;
       directSong.summary = `已把你的标题录音接入上传音频链路，并结合今晚歌单生成专属歌曲。`;
@@ -414,6 +431,17 @@ export async function generateAotdSongViaRemoteProvider(
 
     const completedSong = normalizeGeneratedSong(statusPayload, params);
     if (completedSong) {
+      try {
+        completedSong.audioPath = await cacheRemoteAudioToLocal({
+          remoteUrl: completedSong.audioPath,
+          targetSubDir: "remote-audio",
+          fileNamePrefix: completedSong.title || params.titleText || "aotd-song",
+        });
+      } catch (error) {
+        console.warn("[aotd-song] failed to cache remote audio, keep original url", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
       if (voiceUpload) {
         completedSong.voiceSamplePath = voiceUpload.publicPath;
         completedSong.summary =

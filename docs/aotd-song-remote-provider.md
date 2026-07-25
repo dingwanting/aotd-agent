@@ -10,6 +10,7 @@
 AOTD_SONG_PROVIDER=remote
 AOTD_SONG_API_KEY=your_api_key
 AOTD_SONG_BASE_URL=https://api.sunoapi.org
+AOTD_SONG_FILE_UPLOAD_BASE_URL=https://sunoapiorg.redpandaai.co
 AOTD_SONG_MODEL=V4_5ALL
 AOTD_SONG_CREATE_PATH=/api/v1/generate
 AOTD_SONG_UPLOAD_CREATE_PATH=/api/v1/generate/upload-cover
@@ -22,9 +23,9 @@ AOTD_SONG_VOICE_PERSONA_MODEL=
 
 说明：
 
-- `AOTD_PUBLIC_BASE_URL` 用来把后端落盘的用户录音暴露成 SunoAPI 可访问的公网 `uploadUrl`
-- 如果没单独配置 `AOTD_PUBLIC_BASE_URL`，代码会尝试从 `AOTD_SONG_CALLBACK_URL` 推导同源地址
-- `localhost / 127.0.0.1 / example.com` 会被自动视为不可用域名，并回退到纯文本生成
+- `AOTD_SONG_FILE_UPLOAD_BASE_URL` 是 Suno 文件上传服务地址，默认走 `https://sunoapiorg.redpandaai.co`
+- 现在用户录音会优先上传到 Suno 自己的临时文件服务，再把返回的 `downloadUrl` 喂给 `voice validate / voice generate / upload-cover`
+- `AOTD_PUBLIC_BASE_URL` 仍可保留给项目自己的静态资源场景，但不再是 Suno Voice 的硬前置
 - `AOTD_SONG_VOICE_PERSONA_ID` / `AOTD_SONG_VOICE_PERSONA_MODEL` 是可选能力位
   - 如果后续接通 Suno Voice 生成的 `voiceId`，可在这里填入
   - `voice_persona` 仅适用于 `V5 / V5_5`
@@ -53,7 +54,7 @@ AOTD_SONG_VOICE_PERSONA_MODEL=
 
 ### 2. 用户录音上传链路
 
-当后端能为用户录音生成公网 `uploadUrl` 时，provider 会优先调用：
+当后端拿到用户录音后，provider 会先上传到 Suno 文件服务，并将返回的 `downloadUrl` 作为 `uploadUrl` 调用：
 
 - Path: `AOTD_SONG_UPLOAD_CREATE_PATH`
 - 默认值：`/api/v1/generate/upload-cover`
@@ -62,7 +63,7 @@ AOTD_SONG_VOICE_PERSONA_MODEL=
 
 ```json
 {
-  "uploadUrl": "https://your-domain.com/generated/aotd-song/voice-samples/xxx.mp3",
+  "uploadUrl": "https://sunoapiorg.redpandaai.co/download/xxx",
   "customMode": true,
   "instrumental": false,
   "model": "V4_5ALL",
@@ -76,6 +77,7 @@ AOTD_SONG_VOICE_PERSONA_MODEL=
 补充说明：
 
 - 这条链路的目标是让用户录音先真实进入 Suno 的上传音频处理流程
+- 项目还会把最终生成出的远程音频下载回自己的 `/generated/aotd-song/remote-audio/...`，避免小程序直接播放第三方临时域名失败
 - 如果 upload 链路失败，代码会自动 fallback 到基础文本生成，不会直接报废整个任务
 - 如果后续拿到 `voiceId`，可以继续通过 `personaId + personaModel=voice_persona` 升级成更强的“按用户音色出歌”
 
