@@ -675,7 +675,7 @@ async function requestAotdSongGeneration(payload) {
   if (!createdTask || !createdTask.id) {
     throw new Error("没有创建成功制作任务");
   }
-  const timeoutAt = Date.now() + 45000;
+  const timeoutAt = Date.now() + 120000;
   let taskPayload = created;
   while (Date.now() < timeoutAt) {
     if (taskPayload.task && taskPayload.task.status === "completed") {

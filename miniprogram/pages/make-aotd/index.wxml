@@ -18,7 +18,7 @@
       <text class="eyebrow">AOTD Song Lab</text>
       <view class="make-title">制作我的 AOTD</view>
       <view class="make-desc">参考这次 5 首歌的氛围，把你读出的主标题做成一首更像今晚心情的小歌。</view>
-      <view class="make-note">现在会先缓存这 5 首歌的试听片段，再结合你的录音一起调歌的曲风和人声方向。</view>
+      <view class="make-note">现在会先缓存这 5 首歌的试听片段，再优先拟合你的专属音色，然后再去做这首小歌。</view>
     </view>
 
     <view class="make-card card">
@@ -49,11 +49,11 @@
 
     <view class="make-card card">
       <text class="eyebrow">Voice</text>
-      <view class="section-title">先录一段 8-12 秒标题语音</view>
+      <view class="section-title">先录一段 15-18 秒标题语音</view>
       <view class="voice-status {{recording ? 'voice-status--recording' : ''}}">
         {{recording ? ('正在录音 ' + recordDurationText) : voiceStatusText}}
       </view>
-      <view class="generate-tip">别只读标题，尽量连续说 2-3 句完整的话，比如你今晚的状态、想被陪伴的方式，这样更容易贴近你的声音。</view>
+      <view class="generate-tip">别只读标题，尽量自然说满 15 秒，比如你今晚的状态、想被陪伴的方式、此刻的心情，这样更容易拟合你的专属音色。</view>
       <view class="voice-actions">
         <button wx:if="{{!recording}}" class="action-primary" bindtap="handleStartRecord">开始录音</button>
         <button wx:if="{{recording}}" class="action-primary" bindtap="handleStopRecord">结束录音</button>
@@ -64,7 +64,7 @@
     <view class="make-card card">
       <text class="eyebrow">Generate</text>
       <view class="section-title">把它做成一首小歌</view>
-      <view class="generate-tip">系统会先缓存 5 首参考歌的试听，再把它们的风格标签和你的录音一起送进生成链路。做完后你可以直接试听，也可以把音频保存到本地。</view>
+      <view class="generate-tip">系统会先缓存 5 首参考歌的试听，优先生成你的专属音色，再把它们一起送进生成链路。整个过程会比之前久一点，但更容易贴近你的声音。</view>
       <button class="action-primary {{generating ? 'action-primary--disabled' : ''}}" loading="{{generating}}" disabled="{{generating || !voiceReady}}" bindtap="handleGenerateSong">
         {{generating ? generationText : '开始制作我的 AOTD'}}
       </button>

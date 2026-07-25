@@ -12,6 +12,7 @@ export interface AotdSongTaskRecord {
   tracksJson: string;
   voiceBase64: string;
   voiceFormat: string;
+  voiceDurationMs?: number;
   voicePersonaId?: string;
   status: AotdSongTaskStatus;
   providerMode: string;
@@ -34,6 +35,7 @@ interface AotdSongTaskRow extends RowDataPacket {
   tracks_json: string;
   voice_base64: string;
   voice_format: string;
+  voice_duration_ms: number | null;
   voice_persona_id: string | null;
   status: AotdSongTaskStatus;
   provider_mode: string;
@@ -68,6 +70,8 @@ function toTaskRecord(row: AotdSongTaskRow): AotdSongTaskRecord {
     tracksJson: row.tracks_json,
     voiceBase64: row.voice_base64,
     voiceFormat: row.voice_format,
+    voiceDurationMs:
+      row.voice_duration_ms === null || row.voice_duration_ms === undefined ? undefined : Number(row.voice_duration_ms),
     voicePersonaId: row.voice_persona_id || undefined,
     status: row.status,
     providerMode: row.provider_mode,
@@ -93,6 +97,7 @@ interface CreateTaskParams {
   tracksJson: string;
   voiceBase64: string;
   voiceFormat: string;
+  voiceDurationMs?: number;
   voicePersonaId?: string;
   providerMode: string;
 }
@@ -130,6 +135,7 @@ export class AotdSongStore {
             tracks_json JSON NOT NULL,
             voice_base64 LONGTEXT NOT NULL,
             voice_format VARCHAR(32) NOT NULL DEFAULT 'mp3',
+            voice_duration_ms INT NULL,
             voice_persona_id VARCHAR(255) NULL,
             status ENUM('pending','processing','completed','failed') NOT NULL DEFAULT 'pending',
             provider_mode VARCHAR(64) NOT NULL DEFAULT 'demo',
@@ -148,7 +154,11 @@ export class AotdSongStore {
         `);
         await this.pool!.query(`
           ALTER TABLE aotd_song_task
-          ADD COLUMN voice_persona_id VARCHAR(255) NULL AFTER voice_format
+          ADD COLUMN voice_duration_ms INT NULL AFTER voice_format
+        `).catch(() => undefined);
+        await this.pool!.query(`
+          ALTER TABLE aotd_song_task
+          ADD COLUMN voice_persona_id VARCHAR(255) NULL AFTER voice_duration_ms
         `).catch(() => undefined);
       })();
     }
@@ -165,6 +175,7 @@ export class AotdSongStore {
         tracksJson: params.tracksJson,
         voiceBase64: params.voiceBase64,
         voiceFormat: params.voiceFormat,
+        voiceDurationMs: params.voiceDurationMs,
         voicePersonaId: params.voicePersonaId,
         status: "pending",
         providerMode: params.providerMode,
@@ -180,10 +191,11 @@ export class AotdSongStore {
     const [result] = await this.pool.query<ResultSetHeader>(
       `
         INSERT INTO aotd_song_task (
-          user_id, title_text, playlist_title, tracks_json, voice_base64, voice_format, voice_persona_id,
+          user_id, title_text, playlist_title, tracks_json, voice_base64, voice_format, voice_duration_ms,
+          voice_persona_id,
           status, provider_mode, song_title, song_summary, song_duration_seconds,
           song_audio_path, song_voice_sample_path, error_message, completed_at, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, NULL, NULL, NULL, NULL, NULL, NULL, NULL, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, NULL, NULL, NULL, NULL, NULL, NULL, NULL, ?, ?)
       `,
       [
         params.userId,
@@ -192,6 +204,7 @@ export class AotdSongStore {
         params.tracksJson,
         params.voiceBase64,
         params.voiceFormat,
+        params.voiceDurationMs || null,
         params.voicePersonaId || null,
         params.providerMode,
         timestamp,
@@ -318,6 +331,31 @@ export class AotdSongStore {
         WHERE id = ? AND status <> 'completed'
       `,
       [errorMessage.slice(0, 1000), nowSql(), id],
+    );
+  }
+
+  async updateVoicePersonaId(id: number, voicePersonaId: string): Promise<void> {
+    if (!id || !voicePersonaId) {
+      return;
+    }
+    if (!this.pool) {
+      const task = this.memoryTasks.get(id);
+      if (!task) {
+        return;
+      }
+      task.voicePersonaId = voicePersonaId;
+      task.updatedAt = new Date().toISOString();
+      this.memoryTasks.set(id, task);
+      return;
+    }
+    await this.ensureSchema();
+    await this.pool.query(
+      `
+        UPDATE aotd_song_task
+        SET voice_persona_id = ?, updated_at = ?
+        WHERE id = ?
+      `,
+      [voicePersonaId, nowSql(), id],
     );
   }
 }
