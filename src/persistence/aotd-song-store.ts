@@ -15,6 +15,7 @@ export interface AotdSongTaskRecord {
   tracksJson: string;
   voiceBase64: string;
   voiceFormat: string;
+  vocalProfile?: string;
   voiceDurationMs?: number;
   voicePersonaId?: string;
   status: AotdSongTaskStatus;
@@ -38,6 +39,7 @@ interface AotdSongTaskRow extends RowDataPacket {
   tracks_json: string;
   voice_base64: string;
   voice_format: string;
+  vocal_profile: string | null;
   voice_duration_ms: number | null;
   voice_persona_id: string | null;
   status: AotdSongTaskStatus;
@@ -128,6 +130,7 @@ function toTaskRecord(row: AotdSongTaskRow): AotdSongTaskRecord {
     tracksJson: row.tracks_json,
     voiceBase64: row.voice_base64,
     voiceFormat: row.voice_format,
+    vocalProfile: row.vocal_profile || undefined,
     voiceDurationMs:
       row.voice_duration_ms === null || row.voice_duration_ms === undefined ? undefined : Number(row.voice_duration_ms),
     voicePersonaId: row.voice_persona_id || undefined,
@@ -155,6 +158,7 @@ interface CreateTaskParams {
   tracksJson: string;
   voiceBase64: string;
   voiceFormat: string;
+  vocalProfile?: string;
   voiceDurationMs?: number;
   voicePersonaId?: string;
   providerMode: string;
@@ -195,6 +199,7 @@ export class AotdSongStore {
                 tracks_json JSON NOT NULL,
                 voice_base64 LONGTEXT NOT NULL,
                 voice_format VARCHAR(32) NOT NULL DEFAULT 'mp3',
+                vocal_profile VARCHAR(32) NULL,
                 voice_duration_ms INT NULL,
                 voice_persona_id VARCHAR(255) NULL,
                 status ENUM('pending','processing','completed','failed') NOT NULL DEFAULT 'pending',
@@ -216,7 +221,13 @@ export class AotdSongStore {
           await runMysqlWithRetry(() =>
             this.pool!.query(`
               ALTER TABLE aotd_song_task
-              ADD COLUMN voice_duration_ms INT NULL AFTER voice_format
+              ADD COLUMN vocal_profile VARCHAR(32) NULL AFTER voice_format
+            `).catch(() => undefined),
+          );
+          await runMysqlWithRetry(() =>
+            this.pool!.query(`
+              ALTER TABLE aotd_song_task
+              ADD COLUMN voice_duration_ms INT NULL AFTER vocal_profile
             `).catch(() => undefined),
           );
           await runMysqlWithRetry(() =>
@@ -244,6 +255,7 @@ export class AotdSongStore {
         tracksJson: params.tracksJson,
         voiceBase64: params.voiceBase64,
         voiceFormat: params.voiceFormat,
+        vocalProfile: params.vocalProfile,
         voiceDurationMs: params.voiceDurationMs,
         voicePersonaId: params.voicePersonaId,
         status: "pending",
@@ -262,11 +274,11 @@ export class AotdSongStore {
         this.pool!.query<ResultSetHeader>(
           `
             INSERT INTO aotd_song_task (
-              user_id, title_text, playlist_title, tracks_json, voice_base64, voice_format, voice_duration_ms,
+              user_id, title_text, playlist_title, tracks_json, voice_base64, voice_format, vocal_profile, voice_duration_ms,
               voice_persona_id,
               status, provider_mode, song_title, song_summary, song_duration_seconds,
               song_audio_path, song_voice_sample_path, error_message, completed_at, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, NULL, NULL, NULL, NULL, NULL, NULL, NULL, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, NULL, NULL, NULL, NULL, NULL, NULL, NULL, ?, ?)
           `,
           [
             params.userId,
@@ -275,6 +287,7 @@ export class AotdSongStore {
             params.tracksJson,
             params.voiceBase64,
             params.voiceFormat,
+            params.vocalProfile || null,
             params.voiceDurationMs || null,
             params.voicePersonaId || null,
             params.providerMode,

@@ -37,8 +37,21 @@ const RESULT_TABS = {
   PLAYLIST: "playlist",
   MY_AOTD: "my-aotd",
 };
-const MAX_RECORD_DURATION_MS = 12000;
-const MIN_RECORD_DURATION_MS = 8000;
+const MAX_SONG_TITLE_LENGTH = 20;
+const VOCAL_OPTIONS = [
+  { value: "male", label: "男声", description: "更温暖、更成熟，像夜里靠近耳边的低声陪伴。" },
+  { value: "female", label: "女声", description: "更细腻、更柔和，像晚风里轻轻唱给你的版本。" },
+  { value: "duet", label: "合唱", description: "副歌更有叠唱和陪伴感，像两三个人一起托住情绪。" },
+  { value: "child", label: "儿童音", description: "更清亮、更纯净，像带一点天真感的轻声安慰。" },
+  { value: "foreign", label: "外国人", description: "更偏海外流行唱腔，可以带一点英文 hook 和异国感。" },
+];
+const GENERATION_PROGRESS_STEPS = [
+  { label: "选人声", text: "正在确认你想要的人声方向...", progress: 16 },
+  { label: "理气质", text: "正在整理今晚歌单的氛围和曲风...", progress: 34 },
+  { label: "写旋律", text: "正在把标题写进主旋律里...", progress: 56 },
+  { label: "做编曲", text: "正在给这首歌铺底色和和声...", progress: 78 },
+  { label: "出音频", text: "马上就好，正在输出最终音频...", progress: 100 },
+];
 
 function formatReminderDateText(remindAt) {
   if (!remindAt) {
@@ -101,6 +114,37 @@ function isFallbackNickname(nickname) {
 
 function stripPlaylistPrefix(rawTitle) {
   return String(rawTitle || "").replace(/^AOTD\s*\|\s*/i, "").trim() || "今晚的歌单";
+}
+
+function findVocalOption(value) {
+  return VOCAL_OPTIONS.find((item) => item.value === value) || null;
+}
+
+function buildVocalProfileLabel(value) {
+  const option = findVocalOption(value);
+  return option ? option.label : "默认人声";
+}
+
+function buildSongCreationState(playlistTitle) {
+  return {
+    titleText: stripPlaylistPrefix(playlistTitle || "").slice(0, MAX_SONG_TITLE_LENGTH),
+    titleMaxLength: MAX_SONG_TITLE_LENGTH,
+    vocalOptions: VOCAL_OPTIONS,
+    selectedVocalProfile: "",
+    generatingSong: false,
+    generationText: "正在为你制作...",
+    showGenerationProgress: false,
+    generationProgressSteps: GENERATION_PROGRESS_STEPS,
+    generationProgressStepIndex: -1,
+    generationProgressPercent: 0,
+    generationProgressText: "",
+    songResult: null,
+    songMetaText: "",
+    generationNote: "",
+    savedSongPath: "",
+    playingSong: false,
+    playingVoiceSample: false,
+  };
 }
 
 function withPromise(api, options) {
@@ -471,21 +515,7 @@ Page({
     reminderLoadingText: "",
     reminderTimeText: "明天 18:00",
     reminderDateText: "明天",
-    titleText: "",
-    recording: false,
-    recordDurationText: "0:00",
-    voiceReady: false,
-    voiceTempFilePath: "",
-    voiceDurationMs: 0,
-    voiceStatusText: "还没有录音，连续说两三句，让这首歌更像你的声音。",
-    generatingSong: false,
-    generationText: "正在为你制作...",
-    songResult: null,
-    songMetaText: "",
-    generationNote: "",
-    playingSong: false,
-    playingVoiceSample: false,
-    savedSongPath: "",
+    ...buildSongCreationState(""),
   },
 
   onShow() {
@@ -493,7 +523,6 @@ Page({
     this.audioErrorLogs = this.audioErrorLogs || [];
     this.autoAdvanceOnEnd = false;
     this.autoAdvanceTimer = null;
-    this.ensureRecorderManager();
     this.loadResult();
   },
 
@@ -508,6 +537,7 @@ Page({
     }
     this.destroyAudio();
     this.destroySongAudio();
+    this.resetSongGenerationProgress();
   },
 
   onHide() {
@@ -534,6 +564,7 @@ Page({
         playingVoiceSample: false,
       });
     }
+    this.resetSongGenerationProgress();
   },
 
   async loadResult() {
@@ -565,18 +596,7 @@ Page({
         posterReady: false,
         posterImagePath: "",
         showPosterPreview: false,
-        titleText: stripPlaylistPrefix(cached.playlist.title),
-        voiceReady: false,
-        voiceTempFilePath: "",
-        voiceDurationMs: 0,
-        recordDurationText: "0:00",
-        voiceStatusText: "还没有录音，连续说两三句，让这首歌更像你的声音。",
-        songResult: null,
-        songMetaText: "",
-        generationNote: "",
-        savedSongPath: "",
-        playingSong: false,
-        playingVoiceSample: false,
+        ...buildSongCreationState(cached.playlist.title),
       });
       trackUserEvent({ type: "result_view_cached", answers }).catch(() => {});
       this.autoPlayTopTrack(cached);
@@ -605,18 +625,7 @@ Page({
         posterReady: false,
         posterImagePath: "",
         showPosterPreview: false,
-        titleText: stripPlaylistPrefix(result.playlist.title),
-        voiceReady: false,
-        voiceTempFilePath: "",
-        voiceDurationMs: 0,
-        recordDurationText: "0:00",
-        voiceStatusText: "还没有录音，连续说两三句，让这首歌更像你的声音。",
-        songResult: null,
-        songMetaText: "",
-        generationNote: "",
-        savedSongPath: "",
-        playingSong: false,
-        playingVoiceSample: false,
+        ...buildSongCreationState(result.playlist.title),
       });
       trackUserEvent({ type: "result_view", answers }).catch(() => {});
       this.autoPlayTopTrack(result);
@@ -868,39 +877,90 @@ Page({
   },
 
   handleSongTitleInput(event) {
+    const nextValue = event && event.detail ? String(event.detail.value || "") : "";
+    const trimmedValue = nextValue.slice(0, MAX_SONG_TITLE_LENGTH);
+    if (nextValue.length > MAX_SONG_TITLE_LENGTH && !this.songTitleLimitToastShown) {
+      this.songTitleLimitToastShown = true;
+      wx.showToast({
+        title: `标题最多 ${MAX_SONG_TITLE_LENGTH} 个字，后面的先帮你截掉了`,
+        icon: "none",
+      });
+      wait(1600).then(() => {
+        this.songTitleLimitToastShown = false;
+      });
+    }
     this.setData({
-      titleText: event && event.detail ? event.detail.value : "",
+      titleText: trimmedValue,
     });
   },
 
-  async uploadSongVoiceFile(filePath) {
-    if (!wx.cloud || typeof wx.cloud.uploadFile !== "function" || typeof wx.cloud.getTempFileURL !== "function") {
-      throw new Error("当前环境不支持录音上传");
+  handleSelectVocalProfile(event) {
+    const value = event && event.currentTarget ? event.currentTarget.dataset.value : "";
+    if (!value || value === this.data.selectedVocalProfile) {
+      return;
     }
-    const userId = getStorage(STORAGE_KEYS.userId, "guest");
-    const extension = getFileExtension(filePath);
-    const cloudPath = `aotd/voice-sample/${userId}/${Date.now()}-${Math.random().toString(16).slice(2)}.${extension}`;
-    const uploaded = await wx.cloud.uploadFile({
-      cloudPath,
-      filePath,
+    const label = buildVocalProfileLabel(value);
+    this.setData({
+      selectedVocalProfile: value,
     });
-    const tempUrlResult = await wx.cloud.getTempFileURL({
-      fileList: [uploaded.fileID],
+    wx.showToast({
+      title: `已选${label}`,
+      icon: "none",
     });
-    const tempFile = tempUrlResult && Array.isArray(tempUrlResult.fileList) ? tempUrlResult.fileList[0] : null;
-    const tempUrl = tempFile && tempFile.tempFileURL ? tempFile.tempFileURL : "";
-    if (!tempUrl) {
-      throw new Error("没有拿到录音上传地址");
+  },
+
+  setSongGenerationProgressStep(stepIndex) {
+    const step = GENERATION_PROGRESS_STEPS[stepIndex];
+    if (!step) {
+      return;
     }
-    return {
-      fileID: uploaded.fileID,
-      tempFileURL: tempUrl,
-    };
+    this.setData({
+      showGenerationProgress: true,
+      generationProgressStepIndex: stepIndex,
+      generationProgressPercent: step.progress,
+      generationProgressText: step.text,
+    });
+  },
+
+  startSongGenerationProgress() {
+    this.resetSongGenerationProgress();
+    this.setSongGenerationProgressStep(0);
+    this.songGenerationProgressTimer = setInterval(() => {
+      const currentStep = this.data.generationProgressStepIndex;
+      const holdStep = GENERATION_PROGRESS_STEPS.length - 2;
+      if (currentStep >= holdStep) {
+        return;
+      }
+      this.setSongGenerationProgressStep(currentStep + 1);
+    }, 1800);
+  },
+
+  async completeSongGenerationProgress() {
+    if (this.songGenerationProgressTimer) {
+      clearInterval(this.songGenerationProgressTimer);
+      this.songGenerationProgressTimer = null;
+    }
+    this.setSongGenerationProgressStep(GENERATION_PROGRESS_STEPS.length - 1);
+    await wait(420);
+  },
+
+  resetSongGenerationProgress() {
+    if (this.songGenerationProgressTimer) {
+      clearInterval(this.songGenerationProgressTimer);
+      this.songGenerationProgressTimer = null;
+    }
+    this.setData({
+      showGenerationProgress: false,
+      generationProgressStepIndex: -1,
+      generationProgressPercent: 0,
+      generationProgressText: "",
+    });
   },
 
   async handleGenerateMyAotd() {
     const result = this.data.result;
     const titleText = String(this.data.titleText || "").trim();
+    const vocalProfile = this.data.selectedVocalProfile;
     if (!titleText) {
       wx.showToast({
         title: "先输入主标题",
@@ -908,48 +968,40 @@ Page({
       });
       return;
     }
-    if (!this.data.voiceReady || !this.data.voiceTempFilePath) {
+    if (!vocalProfile) {
       wx.showToast({
-        title: "先录一段标题语音",
-        icon: "none",
-      });
-      return;
-    }
-    if (this.data.voiceDurationMs < MIN_RECORD_DURATION_MS) {
-      wx.showToast({
-        title: "语音太短了，至少录 8 秒",
+        title: "先选一个人声",
         icon: "none",
       });
       return;
     }
     this.setData({
       generatingSong: true,
-      generationText: "正在整理你的录音和歌单气质...",
+      generationText: "正在编排你的 AOTD...",
+      songResult: null,
+      songMetaText: "",
+      generationNote: "",
+      savedSongPath: "",
     });
+    this.startSongGenerationProgress();
     try {
-      this.setData({
-        generationText: "正在上传录音...",
-      });
-      const uploadedVoice = await this.uploadSongVoiceFile(this.data.voiceTempFilePath);
-      this.setData({
-        generationText: "正在生成专属 AOTD 小歌...",
-      });
       const payload = await requestAotdSongGeneration({
         titleText,
         playlistTitle: result.playlist.title,
         answers: result.answers,
         tracks: result.playlist.tracks.map(mapTrackForSongGeneration),
-        voiceSourceUrl: uploadedVoice.tempFileURL,
-        voiceFormat: "mp3",
-        voiceDurationMs: this.data.voiceDurationMs,
+        vocalProfile,
       });
       const song = payload.song || {};
+      const vocalLabel = buildVocalProfileLabel(vocalProfile);
+      await this.completeSongGenerationProgress();
       this.setData({
         generatingSong: false,
         generationText: "正在为你制作...",
+        showGenerationProgress: false,
         songResult: song,
-        songMetaText: `${Math.round(song.durationSeconds || 0)} 秒 · ${song.mode === "demo" ? "Demo 音轨" : "专属歌曲"}`,
-        generationNote: payload.meta && payload.meta.note ? payload.meta.note : "",
+        songMetaText: `${vocalLabel} · ${Math.round(song.durationSeconds || 0)} 秒 · ${song.mode === "demo" ? "Demo 音轨" : "专属歌曲"}`,
+        generationNote: payload.meta && payload.meta.note ? payload.meta.note : `这次按${vocalLabel}方向做了你的 AOTD。`,
         savedSongPath: "",
       });
       trackUserEvent({
@@ -957,12 +1009,14 @@ Page({
         titleText,
         durationSeconds: song.durationSeconds,
         mode: song.mode,
+        vocalProfile,
       }).catch(() => {});
     } catch (error) {
       this.setData({
         generatingSong: false,
         generationText: "正在为你制作...",
       });
+      this.resetSongGenerationProgress();
       wx.showToast({
         title: error && error.message ? error.message : "制作失败，请稍后再试",
         icon: "none",

@@ -112,7 +112,7 @@
         <view class="result-action-pill result-action-pill--accent reminder-button {{reminderEnabled ? 'reminder-button--active' : ''}}" bindtap="handleSubscribeReminder">
           <view class="reminder-button__content">
             <text class="reminder-button__label">{{reminderEnabled ? '继续陪伴已开启' : (reminderLoading ? reminderLoadingText : '继续陪伴')}}</text>
-            <text wx:if="{{reminderEnabled}}" class="reminder-button__meta">{{reminderDateText}}会提醒你</text>
+            <text wx:if="{{reminderEnabled}}" class="reminder-button__meta">每天下班提醒你</text>
           </view>
         </view>
         <view class="result-action-pill result-action-pill--quiet" bindtap="handleRestart">重新回答</view>
@@ -120,22 +120,14 @@
       <view wx:if="{{!reminderEnabled}}" class="result-action-hint muted">
         {{reminderEnabled ? reminderTimeText + ' 会提醒你回来' : '开启后会在明天 18:00 提醒你回来'}}
       </view>
-      <view class="song-lab-entry card" bindtap="handleOpenMakeAotd">
-        <view class="song-lab-entry__copy">
-          <text class="song-lab-entry__eyebrow">My AOTD</text>
-          <text class="song-lab-entry__title">制作我的 AOTD</text>
-          <text class="song-lab-entry__desc">录下这份标题文案，把今晚 5 首歌做成你的专属小歌</text>
-        </view>
-        <view class="song-lab-entry__cta">去试试</view>
-      </view>
     </block>
 
     <block wx:else>
       <view class="make-card card">
         <text class="eyebrow">AOTD Song Lab</text>
         <view class="make-title">制作我的 AOTD</view>
-        <view class="make-desc">参考这次 5 首歌的氛围，把你读出的主标题做成一首更像今晚心情的小歌。</view>
-        <view class="make-note">现在会先缓存这 5 首歌的试听片段，再结合你的录音一起调歌的曲风和人声方向。</view>
+        <view class="make-desc">参考这次 5 首歌的氛围，把你的主标题做成一首更像今晚心情的小歌。</view>
+        <view class="make-note">这次不用录音，直接选一个你想听到的人声方向就行。</view>
       </view>
 
       <view class="make-card card">
@@ -144,47 +136,68 @@
         <input
           class="title-input"
           value="{{titleText}}"
-          maxlength="24"
+          maxlength="40"
           placeholder="比如：今晚先抱抱自己"
           bindinput="handleSongTitleInput"
         />
-      </view>
-
-      <view class="make-card card">
-        <text class="eyebrow">Source Tracks</text>
-        <view class="section-title">这次会参考的 5 首歌</view>
-        <view class="source-tracks">
-          <view wx:for="{{result.playlist.tracks}}" wx:key="rank" class="source-track">
-            <text class="source-track__rank">#{{item.rank}}</text>
-            <view class="source-track__copy">
-              <view class="source-track__title">{{item.song.title}}</view>
-              <view class="source-track__artist muted">{{item.song.artist}}</view>
-            </view>
-          </view>
+        <view class="title-meta {{titleText.length >= titleMaxLength ? 'title-meta--limit' : ''}}">
+          <text>最多 {{titleMaxLength}} 个字</text>
+          <text>{{titleText.length}}/{{titleMaxLength}}</text>
         </view>
       </view>
 
       <view class="make-card card">
         <text class="eyebrow">Voice</text>
-        <view class="section-title">先录一段 8-12 秒标题语音</view>
-        <view class="voice-status {{recording ? 'voice-status--recording' : ''}}">
-          {{recording ? ('正在录音 ' + recordDurationText) : voiceStatusText}}
-        </view>
-        <view class="generate-tip">别只读标题，尽量连续说 2-3 句完整的话，比如你今晚的状态、想被陪伴的方式，这样更容易贴近你的声音。</view>
-        <view class="voice-actions">
-          <button wx:if="{{!recording}}" class="action-primary" bindtap="handleStartSongRecord">开始录音</button>
-          <button wx:if="{{recording}}" class="action-primary" bindtap="handleStopSongRecord">结束录音</button>
-          <button class="action-secondary" disabled="{{!voiceReady}}" bindtap="handleClearSongVoice">重录一遍</button>
+        <view class="section-title">选一个这次想要的人声</view>
+        <view class="generate-tip">不再录音了，直接选一个人声方向，让系统按这个气质去出歌。</view>
+        <view class="vocal-options">
+          <button
+            wx:for="{{vocalOptions}}"
+            wx:key="value"
+            class="vocal-option {{selectedVocalProfile === item.value ? 'vocal-option--active' : ''}}"
+            data-value="{{item.value}}"
+            bindtap="handleSelectVocalProfile"
+            hover-class="vocal-option--hover"
+          >
+            <view class="vocal-option__head">
+              <view class="vocal-option__title">{{item.label}}</view>
+              <view wx:if="{{selectedVocalProfile === item.value}}" class="vocal-option__badge">已选</view>
+            </view>
+            <view class="vocal-option__desc">{{item.description}}</view>
+          </button>
         </view>
       </view>
 
       <view class="make-card card">
         <text class="eyebrow">Generate</text>
         <view class="section-title">把它做成一首小歌</view>
-        <view class="generate-tip">系统会先缓存 5 首参考歌的试听，再把它们的风格标签和你的录音一起送进生成链路。做完后你可以直接试听，也可以把音频保存到本地。</view>
-        <button class="action-primary {{generatingSong ? 'action-primary--disabled' : ''}}" loading="{{generatingSong}}" disabled="{{generatingSong || !voiceReady}}" bindtap="handleGenerateMyAotd">
+        <view class="generate-tip">系统会先整理今晚这 5 首歌的气质，再结合你选的人声方向来生成一首完整的小歌。做完后你可以直接试听，也可以保存到本地。</view>
+        <button class="action-primary {{generatingSong ? 'action-primary--disabled' : ''}}" disabled="{{generatingSong || !selectedVocalProfile}}" bindtap="handleGenerateMyAotd">
           {{generatingSong ? generationText : '开始制作我的 AOTD'}}
         </button>
+        <view wx:if="{{showGenerationProgress}}" class="generation-progress">
+          <view class="generation-progress__head">
+            <text class="generation-progress__title">{{generationProgressText}}</text>
+            <text class="generation-progress__percent">{{generationProgressPercent}}%</text>
+          </view>
+          <view class="generation-progress__track">
+            <view class="generation-progress__fill" style="width: {{generationProgressPercent}}%;"></view>
+            <view class="generation-progress__notes">
+              <view wx:for="{{generationProgressSteps}}" wx:key="label" class="generation-note {{index <= generationProgressStepIndex ? 'generation-note--active' : ''}}">
+                {{index <= generationProgressStepIndex ? '🎵' : '·'}}
+              </view>
+            </view>
+          </view>
+          <view class="generation-progress__labels">
+            <text
+              wx:for="{{generationProgressSteps}}"
+              wx:key="label"
+              class="generation-progress__label {{index === generationProgressStepIndex ? 'generation-progress__label--active' : ''}}"
+            >
+              {{item.label}}
+            </text>
+          </view>
+        </view>
       </view>
 
       <view wx:if="{{songResult}}" class="make-card card">
@@ -195,9 +208,6 @@
         <view class="result-actions">
           <button class="action-primary" bindtap="handleToggleGeneratedSongPlay">{{playingSong ? '暂停小歌' : '播放小歌'}}</button>
           <button class="action-secondary" bindtap="handleSaveGeneratedSong">{{savedSongPath ? '已保存到本地' : '保存音频到本地'}}</button>
-        </view>
-        <view wx:if="{{songResult.voiceSampleUrl}}" class="voice-preview" bindtap="handleToggleGeneratedVoiceSample">
-          {{playingVoiceSample ? '暂停标题录音' : '试听标题录音'}}
         </view>
         <view class="result-note muted">{{generationNote}}</view>
       </view>

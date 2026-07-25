@@ -10,7 +10,11 @@ import { fileURLToPath } from "node:url";
 import { AotdAgent } from "./agents/aotd-agent.js";
 import type { AotdQuestionnaireAnswers } from "./domain/aotd/types.js";
 import { resolveNeteaseAudio, resolveNeteaseTrackUrl } from "./integrations/netease.js";
-import { generateAotdSong, getAotdSongProviderMode } from "./integrations/aotd-song-provider.js";
+import {
+  generateAotdSong,
+  getAotdSongProviderMode,
+  type AotdSongVocalProfile,
+} from "./integrations/aotd-song-provider.js";
 import {
   buildLocalVoiceSamplePath,
   extractRemoteSongErrorMessage,
@@ -455,6 +459,7 @@ async function processAotdSongTask(taskId: number): Promise<void> {
       tracks: parseAotdSongTracks(task.tracksJson),
       voiceBase64: task.voiceBase64,
       voiceFormat: task.voiceFormat,
+      vocalProfile: normalizeAotdSongVocalProfile(task.vocalProfile),
       voicePersonaId: task.voicePersonaId,
       callbackUrl: buildAotdSongCallbackUrl(task.id),
     });
@@ -493,6 +498,20 @@ function isAotdSongTrack(value: unknown): value is AotdSongPayloadTrack {
 
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;
+}
+
+function normalizeAotdSongVocalProfile(value: unknown): AotdSongVocalProfile | undefined {
+  const normalized = typeof value === "string" ? value.trim().toLowerCase() : "";
+  if (
+    normalized === "male" ||
+    normalized === "female" ||
+    normalized === "duet" ||
+    normalized === "child" ||
+    normalized === "foreign"
+  ) {
+    return normalized;
+  }
+  return undefined;
 }
 
 function isRetryableMysqlLikeError(error: unknown): boolean {
@@ -624,6 +643,7 @@ async function handleAotdSongGenerate(req: HttpRequest, res: HttpResponse) {
   let voiceBase64 = typeof payload.voiceBase64 === "string" ? payload.voiceBase64.trim() : "";
   const voiceSourceUrl = typeof payload.voiceSourceUrl === "string" ? payload.voiceSourceUrl.trim() : "";
   const voiceFormat = typeof payload.voiceFormat === "string" ? payload.voiceFormat.trim().toLowerCase() : "mp3";
+  const vocalProfile = normalizeAotdSongVocalProfile(payload.vocalProfile);
   const voiceDurationMs = typeof payload.voiceDurationMs === "number" ? payload.voiceDurationMs : 0;
   const voicePersonaId = typeof payload.voicePersonaId === "string" ? payload.voicePersonaId.trim() : "";
   const tracks = Array.isArray(payload.tracks) ? payload.tracks.filter(isAotdSongTrack).slice(0, 5) : [];
@@ -634,11 +654,13 @@ async function handleAotdSongGenerate(req: HttpRequest, res: HttpResponse) {
   }
   try {
     if (!voiceBase64) {
-      if (!voiceSourceUrl) {
+      if (!voiceSourceUrl && !vocalProfile) {
         sendJson(res, 400, { error: "Missing voice sample" });
         return;
       }
-      voiceBase64 = await downloadRemoteFileAsBase64(voiceSourceUrl);
+      if (voiceSourceUrl) {
+        voiceBase64 = await downloadRemoteFileAsBase64(voiceSourceUrl);
+      }
     }
     const task = await aotdSongStore.createTask({
       userId,
@@ -647,6 +669,7 @@ async function handleAotdSongGenerate(req: HttpRequest, res: HttpResponse) {
       tracksJson: JSON.stringify(tracks),
       voiceBase64,
       voiceFormat,
+      vocalProfile,
       voiceDurationMs,
       voicePersonaId,
       providerMode: getAotdSongProviderMode(),
@@ -721,12 +744,14 @@ async function handleAotdSongCallback(req: HttpRequest, res: HttpResponse, reque
   const completedSong = await resolveGeneratedSongFromRemotePayload(body, {
     titleText: task.titleText,
     playlistTitle: task.playlistTitle,
-    voiceSamplePath: buildLocalVoiceSamplePath({
-      titleText: task.titleText,
-      playlistTitle: task.playlistTitle,
-      voiceBase64: task.voiceBase64,
-      voiceFormat: task.voiceFormat,
-    }),
+    voiceSamplePath: task.voiceBase64
+      ? buildLocalVoiceSamplePath({
+          titleText: task.titleText,
+          playlistTitle: task.playlistTitle,
+          voiceBase64: task.voiceBase64,
+          voiceFormat: task.voiceFormat,
+        })
+      : undefined,
   });
   if (completedSong) {
     await aotdSongStore.markCompleted(localTaskId, {

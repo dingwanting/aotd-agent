@@ -19,12 +19,15 @@ export interface AotdSongTrackSeed {
   energy?: "low" | "medium" | "high";
 }
 
+export type AotdSongVocalProfile = "male" | "female" | "duet" | "child" | "foreign";
+
 export interface GenerateAotdSongParams {
   titleText: string;
   playlistTitle: string;
   tracks: AotdSongTrackSeed[];
   voiceBase64: string;
   voiceFormat: string;
+  vocalProfile?: AotdSongVocalProfile;
   voicePersonaId?: string;
   callbackUrl?: string;
 }

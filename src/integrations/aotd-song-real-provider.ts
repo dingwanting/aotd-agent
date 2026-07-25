@@ -91,6 +91,44 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(__dirname, "..", "..");
 const generatedAudioRoot = path.join(projectRoot, "web", "generated", "aotd-song");
 
+const VOCAL_PROFILE_CONFIG = {
+  male: {
+    label: "男声",
+    promptLine: "人声方向偏温暖成熟的男声主唱，贴耳、稳定、有陪伴感。",
+    styleTag: "warm male vocal, intimate male lead",
+    lyricLine: "整体唱腔更靠近成熟男声，不要太尖太薄。",
+    vocalGender: "m",
+  },
+  female: {
+    label: "女声",
+    promptLine: "人声方向偏柔和清晰的女声主唱，细腻、靠前、能唱出夜晚陪伴感。",
+    styleTag: "soft female vocal, intimate female lead",
+    lyricLine: "整体唱腔更靠近柔和女声，清晰但不要过甜。",
+    vocalGender: "f",
+  },
+  duet: {
+    label: "合唱",
+    promptLine: "人声方向做成双人对唱或小合唱，副歌要有叠唱和和声层次。",
+    styleTag: "duet vocal, layered harmonies, chorus vocal",
+    lyricLine: "副歌请加入明显的双声部或合唱感，层次要温柔饱满。",
+    vocalGender: "",
+  },
+  child: {
+    label: "儿童音",
+    promptLine: "人声方向偏清亮轻盈的儿童音色，纯净、真诚，不要做成卡通或搞怪效果。",
+    styleTag: "child-like vocal, bright innocent tone",
+    lyricLine: "整体唱腔更轻、更亮，保留童声的纯净感，但不要幼稚搞怪。",
+    vocalGender: "",
+  },
+  foreign: {
+    label: "外国人",
+    promptLine: "人声方向偏海外流行唱腔，可以带一点英文句子或轻微异国口音感。",
+    styleTag: "global pop vocal, subtle foreign accent, bilingual phrasing",
+    lyricLine: "允许中英混合或少量英文 hook，让唱腔更像海外流行歌手。",
+    vocalGender: "",
+  },
+} as const;
+
 function normalizeBaseUrl(baseUrl: string): string {
   return baseUrl.replace(/\/+$/, "");
 }
@@ -153,6 +191,22 @@ export function buildLocalVoiceSamplePath(params: Pick<GenerateAotdSongParams, "
   return `/generated/aotd-song/voice-samples/${fileName}`;
 }
 
+function getVocalProfileConfig(request: GenerateAotdSongParams) {
+  const profile = request.vocalProfile || "female";
+  return VOCAL_PROFILE_CONFIG[profile] || VOCAL_PROFILE_CONFIG.female;
+}
+
+function buildLyricLanguageLine(request: GenerateAotdSongParams): string {
+  if (request.vocalProfile === "foreign") {
+    return "歌词允许中英混合，保留海外流行唱腔和英文 hook。";
+  }
+  return "优先中文歌词，语气自然，不要过度煽情。";
+}
+
+function buildVocalDirectionLine(request: GenerateAotdSongParams): string {
+  return getVocalProfileConfig(request).promptLine;
+}
+
 function buildGenerationPrompt(request: GenerateAotdSongParams): string {
   const trackLine = buildReferenceTrackLine(request);
   const styleSignature = buildReferenceStyleSignature(request);
@@ -160,19 +214,22 @@ function buildGenerationPrompt(request: GenerateAotdSongParams): string {
     `请围绕“${request.titleText}”创作一首属于用户的 AOTD 歌曲。`,
     `整体气质参考今晚歌单：${trackLine || request.playlistTitle}。`,
     `风格签名：${styleSignature}。`,
+    `人声设定：${buildVocalDirectionLine(request)}`,
     "要求有真实人声、旋律完整、情绪陪伴感强，适合夜晚下班后独处收听。",
-    "优先中文歌词，语气自然，不要过度煽情。",
+    buildLyricLanguageLine(request),
   ].join("");
 }
 
 function buildUploadLyrics(request: GenerateAotdSongParams, previewCount = 0): string {
   const hook = request.titleText.trim() || "今晚先抱抱自己";
   const moodLine = buildReferenceMoodLine(request);
+  const vocalConfig = getVocalProfileConfig(request);
   return [
     "[Verse]",
     `${hook}`,
     moodLine || "把今天慢慢放下",
     "让夜色替我说晚安",
+    vocalConfig.lyricLine,
     "",
     "[Chorus]",
     `${hook}`,
@@ -214,6 +271,7 @@ function buildReferenceMoodLine(request: GenerateAotdSongParams): string {
 }
 
 function buildReferenceStyleSignature(request: GenerateAotdSongParams): string {
+  const vocalConfig = getVocalProfileConfig(request);
   const genres = pickTopValues(request.tracks.map((track) => track.genre || ""), 2);
   const moods = pickTopValues(request.tracks.flatMap((track) => track.moods || []), 4);
   const scenes = pickTopValues(request.tracks.flatMap((track) => track.scenes || []), 2);
@@ -231,13 +289,13 @@ function buildReferenceStyleSignature(request: GenerateAotdSongParams): string {
   const energyDescriptor =
     energyCount.high >= 3 ? "energetic but polished" : energyCount.low >= 3 ? "soft low-energy flow" : "mid-tempo emotional lift";
   return [
-    languages.includes("中文") ? "Mandarin vocal pop" : "vocal pop",
+    request.vocalProfile === "foreign" ? "global pop vocal" : languages.includes("中文") ? "Mandarin vocal pop" : "vocal pop",
     genres.join(", "),
     moods.join(", "),
     scenes.join(", "),
     tags.join(", "),
     energyDescriptor,
-    "intimate vocal",
+    vocalConfig.styleTag,
     "cohesive melodic hooks",
   ]
     .filter(Boolean)
@@ -248,6 +306,7 @@ function buildUploadStyle(request: GenerateAotdSongParams): string {
   const trackLine = buildReferenceTrackLine(request);
   return [
     buildReferenceStyleSignature(request),
+    getVocalProfileConfig(request).styleTag,
     trackLine || request.playlistTitle || "playlist-inspired",
   ].join(", ");
 }
@@ -346,6 +405,7 @@ function buildUploadCoverRequest(
   voiceUpload: { publicUrl: string },
   previewCount: number,
 ): Record<string, unknown> {
+  const vocalConfig = getVocalProfileConfig(request);
   const personaId = (request.voicePersonaId || env.aotdSongVoicePersonaId).trim();
   const personaModel = request.voicePersonaId ? "voice_persona" : env.aotdSongVoicePersonaModel.trim();
   const needsVoicePersonaModel = personaModel === "voice_persona";
@@ -369,6 +429,9 @@ function buildUploadCoverRequest(
   if (model === "V5_5") {
     payload.duration = 60;
   }
+  if (vocalConfig.vocalGender) {
+    payload.vocalGender = vocalConfig.vocalGender;
+  }
   if (personaId) {
     payload.personaId = personaId;
     payload.personaModel = personaModel || "style_persona";
@@ -381,11 +444,12 @@ function buildTextGenerationRequest(
   env: ReturnType<typeof loadEnv>,
   previewCount: number,
 ): Record<string, unknown> {
+  const vocalConfig = getVocalProfileConfig(request);
   const voicePersonaId = (request.voicePersonaId || env.aotdSongVoicePersonaId).trim();
   const styleWeight = previewCount >= 4 ? 0.78 : 0.74;
   const audioWeight = previewCount >= 4 ? 0.84 : 0.8;
   if (!voicePersonaId) {
-    return {
+    const basePayload: Record<string, unknown> = {
       customMode: true,
       instrumental: false,
       model: env.aotdSongModel || "V4_5ALL",
@@ -398,6 +462,12 @@ function buildTextGenerationRequest(
       weirdnessConstraint: 0.3,
       audioWeight,
     };
+    if (vocalConfig.vocalGender) {
+      return Object.assign(basePayload, {
+        vocalGender: vocalConfig.vocalGender,
+      });
+    }
+    return basePayload;
   }
   const voicePayload: Record<string, unknown> = {
     customMode: true,
@@ -416,6 +486,9 @@ function buildTextGenerationRequest(
   };
   if (voicePayload.model === "V5_5") {
     voicePayload.duration = 60;
+  }
+  if (vocalConfig.vocalGender) {
+    voicePayload.vocalGender = vocalConfig.vocalGender;
   }
   return voicePayload;
 }
