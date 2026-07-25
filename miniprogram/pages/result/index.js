@@ -125,6 +125,12 @@ function buildVocalProfileLabel(value) {
   return option ? option.label : "默认人声";
 }
 
+function buildSongMetaText(song, vocalLabel) {
+  const durationSeconds = Math.max(0, Math.round(Number(song && song.durationSeconds ? song.durationSeconds : 0) || 0));
+  const durationText = durationSeconds > 0 ? `${durationSeconds} 秒` : "时长识别中";
+  return `${vocalLabel} · ${durationText} · ${song && song.mode === "demo" ? "Demo 音轨" : "专属歌曲"}`;
+}
+
 function buildSongCreationState(playlistTitle) {
   return {
     titleText: stripPlaylistPrefix(playlistTitle || "").slice(0, MAX_SONG_TITLE_LENGTH),
@@ -957,6 +963,67 @@ Page({
     });
   },
 
+  async probeSongDurationSeconds(audioUrl) {
+    if (!audioUrl || typeof wx.createInnerAudioContext !== "function") {
+      return 0;
+    }
+    const audioContext = wx.createInnerAudioContext();
+    audioContext.autoplay = false;
+    audioContext.obeyMuteSwitch = false;
+    const duration = await new Promise((resolve) => {
+      let settled = false;
+      let attempt = 0;
+      const finish = (value) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        resolve(Math.max(0, Math.round(Number(value) || 0)));
+      };
+      const checkDuration = () => {
+        attempt += 1;
+        const currentDuration = Number(audioContext.duration || 0);
+        if (currentDuration > 0) {
+          finish(currentDuration);
+          return;
+        }
+        if (attempt >= 12) {
+          finish(0);
+          return;
+        }
+        setTimeout(checkDuration, 180);
+      };
+      audioContext.onCanplay(() => {
+        setTimeout(checkDuration, 60);
+      });
+      audioContext.onError(() => {
+        finish(0);
+      });
+      setTimeout(() => finish(0), 3200);
+      audioContext.src = audioUrl;
+    });
+    audioContext.destroy();
+    return duration;
+  },
+
+  async enrichGeneratedSongDuration(song, vocalLabel) {
+    if (!song || !song.audioUrl || Number(song.durationSeconds || 0) > 0) {
+      return song;
+    }
+    const durationSeconds = await this.probeSongDurationSeconds(song.audioUrl);
+    if (durationSeconds <= 0) {
+      return song;
+    }
+    const nextSong = Object.assign({}, song, {
+      durationSeconds,
+    });
+    this.setData({
+      songResult: nextSong,
+      songMetaText: buildSongMetaText(nextSong, vocalLabel),
+    });
+    return nextSong;
+  },
+
   async handleGenerateMyAotd() {
     const result = this.data.result;
     const titleText = String(this.data.titleText || "").trim();
@@ -1000,15 +1067,16 @@ Page({
         generationText: "正在为你制作...",
         showGenerationProgress: false,
         songResult: song,
-        songMetaText: `${vocalLabel} · ${Math.round(song.durationSeconds || 0)} 秒 · ${song.mode === "demo" ? "Demo 音轨" : "专属歌曲"}`,
+        songMetaText: buildSongMetaText(song, vocalLabel),
         generationNote: payload.meta && payload.meta.note ? payload.meta.note : `这次按${vocalLabel}方向做了你的 AOTD。`,
         savedSongPath: "",
       });
+      const resolvedSong = await this.enrichGeneratedSongDuration(song, vocalLabel);
       trackUserEvent({
         type: "aotd_song_generate_success",
         titleText,
-        durationSeconds: song.durationSeconds,
-        mode: song.mode,
+        durationSeconds: Number((resolvedSong && resolvedSong.durationSeconds) || 0),
+        mode: resolvedSong && resolvedSong.mode ? resolvedSong.mode : song.mode,
         vocalProfile,
       }).catch(() => {});
     } catch (error) {

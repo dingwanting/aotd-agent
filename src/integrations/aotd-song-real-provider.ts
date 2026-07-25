@@ -215,7 +215,10 @@ function buildGenerationPrompt(request: GenerateAotdSongParams): string {
     `整体气质参考今晚歌单：${trackLine || request.playlistTitle}。`,
     `风格签名：${styleSignature}。`,
     `人声设定：${buildVocalDirectionLine(request)}`,
+    "旋律骨架优先贴近这 5 首参考歌共同的走向和情绪推进，像同一个歌单宇宙里自然长出来的新歌。",
     "要求有真实人声、旋律完整、情绪陪伴感强，适合夜晚下班后独处收听。",
+    "整体编曲要近场、克制、现代，不要恢弘，不要大编制，不要做成八九十年代复古 power ballad。",
+    "不要一开口就是高潮副歌，主歌、hook、过门之间要自然递进，更多口语感和连续旋律线。",
     buildLyricLanguageLine(request),
   ].join("");
 }
@@ -231,13 +234,14 @@ function buildUploadLyrics(request: GenerateAotdSongParams, previewCount = 0): s
     "让夜色替我说晚安",
     vocalConfig.lyricLine,
     "",
-    "[Chorus]",
+    "[Hook]",
     `${hook}`,
-    "跟着今晚这份陪伴轻轻唱",
-    "让心事有地方安放",
+    "把情绪轻轻放下",
+    "让今晚慢慢靠近一点",
     "",
-    "[Bridge]",
-    previewCount > 0 ? "旋律要有记忆点，编曲贴近参考歌单的温柔夜晚质感" : "旋律要有记忆点，保留夜晚陪伴感",
+    "[Verse]",
+    previewCount > 0 ? "旋律贴近参考歌单的温柔夜晚质感，不要大开大合" : "旋律要有记忆点，但不要大开大合",
+    "不要写成大合唱，不要做成复古怀旧金曲感",
   ].join("\n");
 }
 
@@ -287,7 +291,11 @@ function buildReferenceStyleSignature(request: GenerateAotdSongParams): string {
     { low: 0, medium: 0, high: 0 },
   );
   const energyDescriptor =
-    energyCount.high >= 3 ? "energetic but polished" : energyCount.low >= 3 ? "soft low-energy flow" : "mid-tempo emotional lift";
+    energyCount.high >= 3
+      ? "rhythmic but restrained, not explosive"
+      : energyCount.low >= 3
+        ? "soft close-mic low-energy flow"
+        : "mid-tempo restrained flow";
   return [
     request.vocalProfile === "foreign" ? "global pop vocal" : languages.includes("中文") ? "Mandarin vocal pop" : "vocal pop",
     genres.join(", "),
@@ -296,6 +304,8 @@ function buildReferenceStyleSignature(request: GenerateAotdSongParams): string {
     tags.join(", "),
     energyDescriptor,
     vocalConfig.styleTag,
+    "modern intimate production",
+    "restrained arrangement",
     "cohesive melodic hooks",
   ]
     .filter(Boolean)
@@ -446,20 +456,21 @@ function buildTextGenerationRequest(
 ): Record<string, unknown> {
   const vocalConfig = getVocalProfileConfig(request);
   const voicePersonaId = (request.voicePersonaId || env.aotdSongVoicePersonaId).trim();
-  const styleWeight = previewCount >= 4 ? 0.78 : 0.74;
-  const audioWeight = previewCount >= 4 ? 0.84 : 0.8;
+  const styleWeight = previewCount >= 4 ? 0.72 : 0.68;
+  const audioWeight = previewCount >= 4 ? 0.74 : 0.68;
   if (!voicePersonaId) {
     const basePayload: Record<string, unknown> = {
       customMode: true,
       instrumental: false,
       model: env.aotdSongModel || "V4_5ALL",
       callBackUrl: buildCallbackUrl(request, env),
-      prompt: buildUploadLyrics(request, previewCount) || buildGenerationPrompt(request),
+      prompt: buildGenerationPrompt(request),
       style: buildUploadStyle(request),
       title: request.titleText || "我的 AOTD 小歌",
-      negativeTags: "heavy metal, aggressive rap, noisy edm, distorted screaming, childish melody",
+      negativeTags:
+        "heavy metal, aggressive rap, noisy edm, distorted screaming, childish melody, stadium chorus, anthemic chorus, 80s retro synth, 90s karaoke pop, power ballad, overture intro",
       styleWeight,
-      weirdnessConstraint: 0.3,
+      weirdnessConstraint: 0.18,
       audioWeight,
     };
     if (vocalConfig.vocalGender) {
