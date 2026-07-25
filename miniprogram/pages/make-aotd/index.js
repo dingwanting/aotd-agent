@@ -1,8 +1,8 @@
 const { STORAGE_KEYS, getStorage } = require("../../utils/storage");
 const { requestAotdSongGeneration, trackUserEvent } = require("../../utils/api");
 
-const MAX_RECORD_DURATION_MS = 10000;
-const MIN_RECORD_DURATION_MS = 2000;
+const MAX_RECORD_DURATION_MS = 12000;
+const MIN_RECORD_DURATION_MS = 8000;
 
 function stripPlaylistPrefix(rawTitle) {
   return String(rawTitle || "").replace(/^AOTD\s*\|\s*/i, "").trim() || "今晚的陪伴";
@@ -13,6 +13,21 @@ function formatDuration(ms) {
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = totalSeconds % 60;
   return `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
+
+function mapTrackForSongGeneration(track) {
+  const song = track && track.song ? track.song : {};
+  return {
+    title: song.title || "",
+    artist: song.artist || "",
+    originalId: song.originalId ? String(song.originalId) : undefined,
+    genre: song.genre || undefined,
+    moods: Array.isArray(song.moods) ? song.moods : [],
+    scenes: Array.isArray(song.scenes) ? song.scenes : [],
+    tags: Array.isArray(song.tags) ? song.tags : [],
+    language: song.language || undefined,
+    energy: song.energy || undefined,
+  };
 }
 
 Page({
@@ -26,7 +41,7 @@ Page({
     voiceReady: false,
     voiceTempFilePath: "",
     voiceDurationMs: 0,
-    voiceStatusText: "还没有录音，先把主标题读出来。",
+    voiceStatusText: "还没有录音，连续说两三句，让这首歌更像你的声音。",
     generating: false,
     generationText: "正在为你制作...",
     songResult: null,
@@ -86,7 +101,7 @@ Page({
       this.setData({
         recording: true,
         recordDurationText: "0:00",
-        voiceStatusText: "正在录音，把主标题自然地读出来就好。",
+        voiceStatusText: "正在录音，连续说两三句，语气自然一点就好。",
       });
     });
 
@@ -184,8 +199,8 @@ Page({
         duration: MAX_RECORD_DURATION_MS,
         format: "mp3",
         numberOfChannels: 1,
-        sampleRate: 44100,
-        encodeBitRate: 96000,
+        sampleRate: 16000,
+        encodeBitRate: 32000,
       });
     } catch (error) {
       wx.showToast({
@@ -208,7 +223,7 @@ Page({
       voiceTempFilePath: "",
       voiceDurationMs: 0,
       recordDurationText: "0:00",
-      voiceStatusText: "已清空，重新录一遍吧。",
+      voiceStatusText: "已清空，重新录一遍吧，尽量说满 8 秒。",
       songResult: null,
       songMetaText: "",
       generationNote: "",
@@ -249,7 +264,7 @@ Page({
     }
     if (this.data.voiceDurationMs < MIN_RECORD_DURATION_MS) {
       wx.showToast({
-        title: "语音太短了，至少录 2 秒",
+        title: "语音太短了，至少录 8 秒",
         icon: "none",
       });
       return;
@@ -268,10 +283,7 @@ Page({
         titleText,
         playlistTitle: result.playlist.title,
         answers: result.answers,
-        tracks: result.playlist.tracks.map((track) => ({
-          title: track.song && track.song.title ? track.song.title : "",
-          artist: track.song && track.song.artist ? track.song.artist : "",
-        })),
+        tracks: result.playlist.tracks.map(mapTrackForSongGeneration),
         voiceBase64,
         voiceFormat: "mp3",
         voiceDurationMs: this.data.voiceDurationMs,

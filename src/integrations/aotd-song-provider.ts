@@ -10,6 +10,13 @@ import {
 export interface AotdSongTrackSeed {
   title: string;
   artist: string;
+  originalId?: string;
+  genre?: string;
+  moods?: string[];
+  scenes?: string[];
+  tags?: string[];
+  language?: string;
+  energy?: "low" | "medium" | "high";
 }
 
 export interface GenerateAotdSongParams {

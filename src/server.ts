@@ -38,7 +38,7 @@ const AOTD_REMINDER_PAGE = "pages/landing/index";
 
 // 部署版本指纹：每次代码改动必须 bump，方便从云托管日志确认跑的是哪个版本
 // 同时启动时打 dist 文件 hash + 文件 mtime + git HEAD，可以一眼看出"是否在跑新代码"
-const DEPLOY_VERSION = "aotd-2026-07-25-r20-aotd-song-status-retry-callback-v1";
+const DEPLOY_VERSION = "aotd-2026-07-25-r21-aotd-song-style-signature-v1";
 
 const appEnv = loadEnv();
 const processingAotdSongTasks = new Set<number>();
@@ -342,6 +342,13 @@ async function handleReminderDispatch(req: HttpRequest, res: HttpResponse) {
 interface AotdSongPayloadTrack {
   title: string;
   artist: string;
+  originalId?: string;
+  genre?: string;
+  moods?: string[];
+  scenes?: string[];
+  tags?: string[];
+  language?: string;
+  energy?: "low" | "medium" | "high";
 }
 
 function parseAotdSongTracks(rawTracks: string): AotdSongPayloadTrack[] {
@@ -381,7 +388,7 @@ function formatAotdSongTask(record: AotdSongTaskRecord) {
       note:
         record.providerMode === "demo"
           ? "当前为制作我的AOTD MVP，会先生成一段专属 demo 音轨；后续接入真实音乐模型后可直接替换。"
-          : "已接入真实音乐生成能力。",
+          : "已接入真实音乐生成能力，并会综合 5 首参考歌的试听缓存与风格标签。",
     },
   };
 }

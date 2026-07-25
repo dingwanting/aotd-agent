@@ -4,6 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { loadEnv } from "../config/env.js";
+import { cacheNeteaseTrackPreviews } from "./netease.js";
 import { cacheRemoteAudioToLocal, persistBase64FileToProject, uploadBase64FileToSuno } from "./suno-file-transfer.js";
 
 import type { GenerateAotdSongParams, GeneratedAotdSong } from "./aotd-song-provider.js";
@@ -136,45 +137,100 @@ export function buildLocalVoiceSamplePath(params: Pick<GenerateAotdSongParams, "
 }
 
 function buildGenerationPrompt(request: GenerateAotdSongParams): string {
-  const trackLine = request.tracks
-    .slice(0, 5)
-    .map((track) => [track.title, track.artist].filter(Boolean).join(" - "))
-    .filter(Boolean)
-    .join("；");
+  const trackLine = buildReferenceTrackLine(request);
+  const styleSignature = buildReferenceStyleSignature(request);
   return [
     `请围绕“${request.titleText}”创作一首属于用户的 AOTD 歌曲。`,
     `整体气质参考今晚歌单：${trackLine || request.playlistTitle}。`,
+    `风格签名：${styleSignature}。`,
     "要求有真实人声、旋律完整、情绪陪伴感强，适合夜晚下班后独处收听。",
     "优先中文歌词，语气自然，不要过度煽情。",
   ].join("");
 }
 
-function buildUploadLyrics(request: GenerateAotdSongParams): string {
+function buildUploadLyrics(request: GenerateAotdSongParams, previewCount = 0): string {
   const hook = request.titleText.trim() || "今晚先抱抱自己";
+  const moodLine = buildReferenceMoodLine(request);
   return [
     "[Verse]",
     `${hook}`,
-    "把今天慢慢放下",
+    moodLine || "把今天慢慢放下",
     "让夜色替我说晚安",
     "",
     "[Chorus]",
     `${hook}`,
     "跟着今晚这份陪伴轻轻唱",
     "让心事有地方安放",
+    "",
+    "[Bridge]",
+    previewCount > 0 ? "旋律要有记忆点，编曲贴近参考歌单的温柔夜晚质感" : "旋律要有记忆点，保留夜晚陪伴感",
   ].join("\n");
 }
 
-function buildUploadStyle(request: GenerateAotdSongParams): string {
-  const trackLine = request.tracks
+function buildReferenceTrackLine(request: GenerateAotdSongParams): string {
+  return request.tracks
     .slice(0, 5)
     .map((track) => [track.title, track.artist].filter(Boolean).join(" - "))
     .filter(Boolean)
     .join("；");
+}
+
+function pickTopValues(values: string[], limit: number): string[] {
+  const counts = new Map<string, number>();
+  values.forEach((value) => {
+    const normalized = String(value || "").trim();
+    if (!normalized) {
+      return;
+    }
+    counts.set(normalized, (counts.get(normalized) || 0) + 1);
+  });
+  return Array.from(counts.entries())
+    .sort((left, right) => right[1] - left[1])
+    .slice(0, limit)
+    .map(([value]) => value);
+}
+
+function buildReferenceMoodLine(request: GenerateAotdSongParams): string {
+  const moods = pickTopValues(request.tracks.flatMap((track) => track.moods || []), 3);
+  const scenes = pickTopValues(request.tracks.flatMap((track) => track.scenes || []), 2);
+  return [moods.join(" / "), scenes.join(" / ")].filter(Boolean).join("，");
+}
+
+function buildReferenceStyleSignature(request: GenerateAotdSongParams): string {
+  const genres = pickTopValues(request.tracks.map((track) => track.genre || ""), 2);
+  const moods = pickTopValues(request.tracks.flatMap((track) => track.moods || []), 4);
+  const scenes = pickTopValues(request.tracks.flatMap((track) => track.scenes || []), 2);
+  const tags = pickTopValues(request.tracks.flatMap((track) => track.tags || []), 4);
+  const languages = pickTopValues(request.tracks.map((track) => track.language || ""), 2);
+  const energyCount = request.tracks.reduce(
+    (acc, track) => {
+      if (track.energy === "low" || track.energy === "medium" || track.energy === "high") {
+        acc[track.energy] += 1;
+      }
+      return acc;
+    },
+    { low: 0, medium: 0, high: 0 },
+  );
+  const energyDescriptor =
+    energyCount.high >= 3 ? "energetic but polished" : energyCount.low >= 3 ? "soft low-energy flow" : "mid-tempo emotional lift";
   return [
-    "Mandarin pop",
-    "late night",
-    "healing",
+    languages.includes("中文") ? "Mandarin vocal pop" : "vocal pop",
+    genres.join(", "),
+    moods.join(", "),
+    scenes.join(", "),
+    tags.join(", "),
+    energyDescriptor,
     "intimate vocal",
+    "cohesive melodic hooks",
+  ]
+    .filter(Boolean)
+    .join(", ");
+}
+
+function buildUploadStyle(request: GenerateAotdSongParams): string {
+  const trackLine = buildReferenceTrackLine(request);
+  return [
+    buildReferenceStyleSignature(request),
     trackLine || request.playlistTitle || "playlist-inspired",
   ].join(", ");
 }
@@ -271,24 +327,28 @@ function buildUploadCoverRequest(
   request: GenerateAotdSongParams,
   env: ReturnType<typeof loadEnv>,
   voiceUpload: { publicUrl: string },
+  previewCount: number,
 ): Record<string, unknown> {
   const personaId = (request.voicePersonaId || env.aotdSongVoicePersonaId).trim();
   const personaModel = request.voicePersonaId ? "voice_persona" : env.aotdSongVoicePersonaModel.trim();
   const needsVoicePersonaModel = personaModel === "voice_persona";
   const model = needsVoicePersonaModel ? "V5_5" : env.aotdSongModel || "V4_5ALL";
+  const styleWeight = previewCount >= 4 ? 0.8 : 0.72;
+  const audioWeight = previewCount >= 4 ? 0.88 : 0.82;
   const payload: Record<string, unknown> = {
     uploadUrl: voiceUpload.publicUrl,
     customMode: true,
     instrumental: false,
     model,
     callBackUrl: buildCallbackUrl(request, env),
-    prompt: buildUploadLyrics(request),
+    prompt: buildUploadLyrics(request, previewCount),
     style: buildUploadStyle(request),
     title: request.titleText || "我的 AOTD 小歌",
+    duration: 60,
     negativeTags: "heavy metal, aggressive rap, noisy edm, distorted screaming",
-    styleWeight: 0.58,
-    weirdnessConstraint: 0.35,
-    audioWeight: 0.72,
+    styleWeight,
+    weirdnessConstraint: 0.28,
+    audioWeight,
   };
   if (personaId) {
     payload.personaId = personaId;
@@ -300,15 +360,25 @@ function buildUploadCoverRequest(
 function buildTextGenerationRequest(
   request: GenerateAotdSongParams,
   env: ReturnType<typeof loadEnv>,
+  previewCount: number,
 ): Record<string, unknown> {
   const voicePersonaId = (request.voicePersonaId || env.aotdSongVoicePersonaId).trim();
+  const styleWeight = previewCount >= 4 ? 0.78 : 0.74;
+  const audioWeight = previewCount >= 4 ? 0.84 : 0.8;
   if (!voicePersonaId) {
     return {
-      prompt: buildGenerationPrompt(request),
-      customMode: false,
+      customMode: true,
       instrumental: false,
       model: env.aotdSongModel || "V4_5ALL",
       callBackUrl: buildCallbackUrl(request, env),
+      prompt: buildUploadLyrics(request, previewCount) || buildGenerationPrompt(request),
+      style: buildUploadStyle(request),
+      title: request.titleText || "我的 AOTD 小歌",
+      duration: 60,
+      negativeTags: "heavy metal, aggressive rap, noisy edm, distorted screaming, childish melody",
+      styleWeight,
+      weirdnessConstraint: 0.3,
+      audioWeight,
     };
   }
   return {
@@ -316,15 +386,16 @@ function buildTextGenerationRequest(
     instrumental: false,
     model: "V5_5",
     callBackUrl: buildCallbackUrl(request, env),
-    prompt: buildUploadLyrics(request),
+    prompt: buildUploadLyrics(request, previewCount),
     style: buildUploadStyle(request),
     title: request.titleText || "我的 AOTD 小歌",
     personaId: voicePersonaId,
     personaModel: "voice_persona",
     negativeTags: "heavy metal, aggressive rap, noisy edm, distorted screaming",
-    styleWeight: 0.58,
-    weirdnessConstraint: 0.35,
-    audioWeight: 0.72,
+    duration: 60,
+    styleWeight,
+    weirdnessConstraint: 0.28,
+    audioWeight: Math.max(audioWeight, 0.84),
   };
 }
 
@@ -477,7 +548,17 @@ export async function generateAotdSongViaRemoteProvider(
   }
 
   const baseUrl = normalizeBaseUrl(env.aotdSongBaseUrl);
-  const voiceUpload = await persistVoiceSample(params, env);
+  const [voiceUpload, referencePreviews] = await Promise.all([
+    persistVoiceSample(params, env),
+    cacheNeteaseTrackPreviews(
+      params.tracks.map((track) => ({
+        title: track.title,
+        artist: track.artist,
+        originalId: track.originalId,
+      })),
+    ),
+  ]);
+  const cachedPreviewCount = referencePreviews.filter((item) => item.cached && item.audioPath).length;
 
   let createPayload: RemoteSongResponse;
   try {
@@ -486,11 +567,11 @@ export async function generateAotdSongViaRemoteProvider(
       createPayload = await postJson(
         uploadCreateUrl,
         env.aotdSongApiKey,
-        buildUploadCoverRequest(params, env, voiceUpload),
+        buildUploadCoverRequest(params, env, voiceUpload, cachedPreviewCount),
       );
     } else {
       const createUrl = `${baseUrl}${normalizePath(env.aotdSongCreatePath)}`;
-      createPayload = await postJson(createUrl, env.aotdSongApiKey, buildTextGenerationRequest(params, env));
+      createPayload = await postJson(createUrl, env.aotdSongApiKey, buildTextGenerationRequest(params, env, cachedPreviewCount));
     }
   } catch (error) {
     if (!voiceUpload) {
@@ -500,7 +581,7 @@ export async function generateAotdSongViaRemoteProvider(
       error: error instanceof Error ? error.message : String(error),
     });
     const createUrl = `${baseUrl}${normalizePath(env.aotdSongCreatePath)}`;
-    createPayload = await postJson(createUrl, env.aotdSongApiKey, buildTextGenerationRequest(params, env));
+    createPayload = await postJson(createUrl, env.aotdSongApiKey, buildTextGenerationRequest(params, env, cachedPreviewCount));
   }
 
   const directSong = normalizeGeneratedSong(createPayload, params);
@@ -518,7 +599,10 @@ export async function generateAotdSongViaRemoteProvider(
     }
     if (voiceUpload) {
       directSong.voiceSamplePath = voiceUpload.publicPath;
-      directSong.summary = `已把你的标题录音接入上传音频链路，并结合今晚歌单生成专属歌曲。`;
+      directSong.summary =
+        cachedPreviewCount > 0
+          ? `已参考 ${cachedPreviewCount} 首歌的试听与风格标签，并把你的录音接入生成链路。`
+          : "已结合这次歌单的风格标签，并把你的录音接入生成链路。";
     }
     return directSong;
   }
@@ -550,7 +634,10 @@ export async function generateAotdSongViaRemoteProvider(
       if (voiceUpload) {
         completedSong.voiceSamplePath = voiceUpload.publicPath;
         completedSong.summary =
-          completedSong.summary || "已把你的标题录音接入上传音频链路，并结合今晚歌单生成专属歌曲。";
+          completedSong.summary ||
+          (cachedPreviewCount > 0
+            ? `已参考 ${cachedPreviewCount} 首歌的试听与风格标签，并把你的录音接入生成链路。`
+            : "已结合这次歌单的风格标签，并把你的录音接入生成链路。");
       }
       return completedSong;
     }

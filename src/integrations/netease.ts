@@ -1,3 +1,8 @@
+import crypto from "node:crypto";
+import fs from "node:fs/promises";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
 export interface ResolveTrackUrlOptions {
   title?: string;
   artist?: string;
@@ -55,7 +60,23 @@ export interface NeteaseAudioResolution {
   message?: string;
 }
 
+export interface CachedNeteasePreview {
+  title: string;
+  artist: string;
+  originalId?: string;
+  matchedSongId?: string;
+  audioPath?: string;
+  cached: boolean;
+  source: string;
+  message?: string;
+}
+
 const NETEASE_AUDIO_API_BASE = process.env.NETEASE_AUDIO_API_BASE || "https://api.91videos.vip";
+const NETEASE_PREVIEW_BYTES = 384 * 1024;
+const NETEASE_PREVIEW_TIMEOUT_MS = 15000;
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const projectRoot = path.resolve(__dirname, "..", "..");
+const generatedPreviewRoot = path.join(projectRoot, "web", "generated", "aotd-song", "reference-previews");
 
 function asString(value: unknown): string {
   if (value === undefined || value === null) {
@@ -95,6 +116,24 @@ function buildPlayableApiUrl(songId: string): URL {
   apiUrl.searchParams.set("level", "standard");
   apiUrl.searchParams.set("unblock", "true");
   return apiUrl;
+}
+
+function sanitizeName(value: string): string {
+  return value.replace(/[^a-z0-9-_]/gi, "-").replace(/-+/g, "-").replace(/^-|-$/g, "").slice(0, 80);
+}
+
+function detectExtensionFromContentType(contentType: string | null): string {
+  const normalized = asString(contentType).toLowerCase();
+  if (normalized.includes("audio/wav")) {
+    return "wav";
+  }
+  if (normalized.includes("audio/mp4") || normalized.includes("audio/x-m4a")) {
+    return "m4a";
+  }
+  if (normalized.includes("audio/aac")) {
+    return "aac";
+  }
+  return "mp3";
 }
 
 function getArtistNames(song: NeteaseSearchSong): string[] {
@@ -297,6 +336,83 @@ export async function resolveNeteaseAudio(options: ResolveTrackUrlOptions): Prom
     searchKeyword,
     source: "external_api",
   };
+}
+
+export async function cacheNeteaseTrackPreviews(
+  tracks: ResolveTrackUrlOptions[],
+): Promise<CachedNeteasePreview[]> {
+  const results: CachedNeteasePreview[] = [];
+  for (const track of tracks.slice(0, 5)) {
+    const title = asString(track.title);
+    const artist = asString(track.artist);
+    const originalId = asString(track.originalId);
+    if (!title && !artist && !originalId) {
+      continue;
+    }
+    try {
+      const resolution = await resolveNeteaseAudio(track);
+      if (!resolution.playable || !resolution.audioUrl) {
+        results.push({
+          title,
+          artist,
+          originalId,
+          matchedSongId: resolution.matchedSongId,
+          cached: false,
+          source: resolution.source,
+          message: resolution.message,
+        });
+        continue;
+      }
+      const response = await fetch(resolution.audioUrl, {
+        headers: {
+          "user-agent":
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
+          referer: "https://music.163.com/",
+          range: `bytes=0-${NETEASE_PREVIEW_BYTES - 1}`,
+        },
+        signal: AbortSignal.timeout(NETEASE_PREVIEW_TIMEOUT_MS),
+      });
+      if (!response.ok) {
+        results.push({
+          title,
+          artist,
+          originalId,
+          matchedSongId: resolution.matchedSongId,
+          cached: false,
+          source: "preview_fetch",
+          message: `Preview request failed: ${response.status}`,
+        });
+        continue;
+      }
+      const buffer = Buffer.from(await response.arrayBuffer());
+      const extension = detectExtensionFromContentType(response.headers.get("content-type"));
+      const fileStem =
+        sanitizeName(originalId || `${title || "aotd"}-${artist || "preview"}`) || `aotd-preview-${crypto.randomUUID().slice(0, 8)}`;
+      const fileName = `${fileStem}-${crypto.randomUUID().slice(0, 8)}.${extension}`;
+      const absolutePath = path.join(generatedPreviewRoot, fileName);
+      await fs.mkdir(path.dirname(absolutePath), { recursive: true });
+      await fs.writeFile(absolutePath, buffer);
+      results.push({
+        title,
+        artist,
+        originalId,
+        matchedSongId: resolution.matchedSongId,
+        cached: true,
+        source: resolution.source,
+        audioPath: `/generated/aotd-song/reference-previews/${fileName}`,
+      });
+    } catch (error) {
+      results.push({
+        title,
+        artist,
+        originalId,
+        cached: false,
+        source: "preview_fetch",
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+  return results;
 }
 
 export async function resolveNeteaseTrackUrl(options: ResolveTrackUrlOptions): Promise<string> {
