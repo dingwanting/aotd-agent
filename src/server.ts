@@ -11,6 +11,12 @@ import { AotdAgent } from "./agents/aotd-agent.js";
 import type { AotdQuestionnaireAnswers } from "./domain/aotd/types.js";
 import { resolveNeteaseAudio, resolveNeteaseTrackUrl } from "./integrations/netease.js";
 import { generateAotdSong, getAotdSongProviderMode } from "./integrations/aotd-song-provider.js";
+import {
+  buildLocalVoiceSamplePath,
+  extractRemoteSongErrorMessage,
+  extractRemoteSongStatus,
+  resolveGeneratedSongFromRemotePayload,
+} from "./integrations/aotd-song-real-provider.js";
 import { finalizeSunoVoicePersona, prepareSunoVoicePersona } from "./integrations/suno-voice-provider.js";
 import { sendMiniProgramSubscribeMessage } from "./integrations/wx-subscribe.js";
 import { loadEnv } from "./config/env.js";
@@ -32,7 +38,7 @@ const AOTD_REMINDER_PAGE = "pages/landing/index";
 
 // 部署版本指纹：每次代码改动必须 bump，方便从云托管日志确认跑的是哪个版本
 // 同时启动时打 dist 文件 hash + 文件 mtime + git HEAD，可以一眼看出"是否在跑新代码"
-const DEPLOY_VERSION = "aotd-2026-07-25-r19-aotd-song-upload-fallback-v1";
+const DEPLOY_VERSION = "aotd-2026-07-25-r20-aotd-song-status-retry-callback-v1";
 
 const appEnv = loadEnv();
 const processingAotdSongTasks = new Set<number>();
@@ -380,6 +386,20 @@ function formatAotdSongTask(record: AotdSongTaskRecord) {
   };
 }
 
+function buildAotdSongCallbackUrl(taskId: number): string | undefined {
+  const rawCallbackUrl = (appEnv.aotdSongCallbackUrl || "").trim();
+  if (!rawCallbackUrl || !taskId) {
+    return undefined;
+  }
+  try {
+    const callbackUrl = new URL(rawCallbackUrl);
+    callbackUrl.searchParams.set("localTaskId", String(taskId));
+    return callbackUrl.toString();
+  } catch {
+    return undefined;
+  }
+}
+
 async function processAotdSongTask(taskId: number): Promise<void> {
   if (!taskId || processingAotdSongTasks.has(taskId)) {
     return;
@@ -401,6 +421,7 @@ async function processAotdSongTask(taskId: number): Promise<void> {
       voiceBase64: task.voiceBase64,
       voiceFormat: task.voiceFormat,
       voicePersonaId: task.voicePersonaId,
+      callbackUrl: buildAotdSongCallbackUrl(task.id),
     });
     await aotdSongStore.markCompleted(taskId, {
       providerMode: generated.provider,
@@ -618,13 +639,53 @@ async function handleAotdSongTaskStatus(req: HttpRequest, res: HttpResponse, tas
   });
 }
 
-async function handleAotdSongCallback(req: HttpRequest, res: HttpResponse) {
+async function handleAotdSongCallback(req: HttpRequest, res: HttpResponse, requestUrl: URL) {
   if (req.method !== "POST") {
     sendJson(res, 405, { error: "Method not allowed" });
     return;
   }
   const body = await readJsonBody(req);
   console.log("[aotd-song] callback received", body);
+  const localTaskId = Number(requestUrl.searchParams.get("localTaskId") || "0");
+  if (!localTaskId) {
+    sendJson(res, 200, { ok: true, accepted: false });
+    return;
+  }
+  const task = await aotdSongStore.findById(localTaskId);
+  if (!task) {
+    sendJson(res, 200, { ok: true, accepted: false, missingTask: true });
+    return;
+  }
+  const completedSong = await resolveGeneratedSongFromRemotePayload(body, {
+    titleText: task.titleText,
+    playlistTitle: task.playlistTitle,
+    voiceSamplePath: buildLocalVoiceSamplePath({
+      titleText: task.titleText,
+      playlistTitle: task.playlistTitle,
+      voiceBase64: task.voiceBase64,
+      voiceFormat: task.voiceFormat,
+    }),
+  });
+  if (completedSong) {
+    await aotdSongStore.markCompleted(localTaskId, {
+      providerMode: completedSong.provider,
+      songTitle: completedSong.title,
+      songSummary: completedSong.summary,
+      songDurationSeconds: completedSong.durationSeconds,
+      songAudioPath: completedSong.audioPath,
+      songVoiceSamplePath: completedSong.voiceSamplePath,
+    });
+    sendJson(res, 200, { ok: true, accepted: true, status: "completed" });
+    return;
+  }
+  const callbackStatus = extractRemoteSongStatus(body);
+  if (callbackStatus === "FAILED" || callbackStatus === "ERROR") {
+    const message = extractRemoteSongErrorMessage(body, "真实音乐服务回调失败");
+    console.error("[aotd-song] callback marked task failed", { taskId: localTaskId, error: message });
+    await aotdSongStore.markFailed(localTaskId, message);
+    sendJson(res, 200, { ok: true, accepted: true, status: "failed" });
+    return;
+  }
   sendJson(res, 200, { ok: true });
 }
 
@@ -1205,7 +1266,7 @@ const server = createServer(async (req, res) => {
     }
 
     if (requestUrl.pathname === "/api/aotd-song/callback") {
-      await handleAotdSongCallback(req, res);
+      await handleAotdSongCallback(req, res, requestUrl);
       return;
     }
 

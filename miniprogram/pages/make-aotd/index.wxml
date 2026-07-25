@@ -17,18 +17,18 @@
     <view class="make-card card">
       <text class="eyebrow">AOTD Song Lab</text>
       <view class="make-title">制作我的 AOTD</view>
-      <view class="make-desc">以这次 5 首歌的氛围为基调，把你读出的主标题做成一首专属小歌。</view>
-      <view class="make-note">现在已经支持先生成你的专属音色，再把这份音色优先带进出歌链路里。</view>
+      <view class="make-desc">参考这次 5 首歌的氛围，把你读出的主标题做成一首更像今晚心情的小歌。</view>
+      <view class="make-note">现在的流程已经收回成一条主线：写标题、录一句、直接出歌。</view>
     </view>
 
     <view class="make-card card">
       <text class="eyebrow">Title</text>
-      <view class="section-title">读出这句主标题</view>
+      <view class="section-title">先定下这首小歌的标题</view>
       <input
         class="title-input"
         value="{{titleText}}"
         maxlength="24"
-        placeholder="输入你想读出的主标题"
+        placeholder="比如：今晚先抱抱自己"
         bindinput="handleTitleInput"
       />
     </view>
@@ -51,7 +51,7 @@
       <text class="eyebrow">Voice</text>
       <view class="section-title">先录一段 5-10 秒标题语音</view>
       <view class="voice-status {{recording ? 'voice-status--recording' : ''}}">
-        {{recording && recordingTarget === 'source' ? ('正在录音 ' + recordDurationText) : voiceStatusText}}
+        {{recording ? ('正在录音 ' + recordDurationText) : voiceStatusText}}
       </view>
       <view class="voice-actions">
         <button wx:if="{{!recording}}" class="action-primary" bindtap="handleStartRecord">开始录音</button>
@@ -61,40 +61,10 @@
     </view>
 
     <view class="make-card card">
-      <text class="eyebrow">Voice Persona</text>
-      <view class="section-title">先生成一条跟读短句</view>
-      <view class="generate-tip">系统会先根据你的声音准备一条短句，你照着读一遍后，就能换出专属 voiceId。</view>
-      <button class="action-primary {{voicePersonaPreparing ? 'action-primary--disabled' : ''}}" loading="{{voicePersonaPreparing}}" disabled="{{voicePersonaPreparing || !voiceReady}}" bindtap="handlePrepareVoicePersona">
-        {{voicePersonaPreparing ? voicePersonaGenerateText : voicePersonaGenerateText}}
-      </button>
-      <view wx:if="{{voicePersonaValidateText}}" class="voice-validate-box">
-        <view class="voice-validate-label">请照着这句读：</view>
-        <view class="voice-validate-text">{{voicePersonaValidateText}}</view>
-      </view>
-    </view>
-
-    <view wx:if="{{voicePersonaValidateText}}" class="make-card card">
-      <text class="eyebrow">Verify</text>
-      <view class="section-title">跟读短句，生成你的音色</view>
-      <view class="voice-status {{recording ? 'voice-status--recording' : ''}}">
-        {{recording && recordingTarget === 'verify' ? ('正在录音 ' + verifyRecordDurationText) : verifyVoiceStatusText}}
-      </view>
-      <view class="voice-actions">
-        <button wx:if="{{!recording}}" class="action-primary" bindtap="handleStartVerifyRecord">开始跟读录音</button>
-        <button wx:if="{{recording}}" class="action-primary" bindtap="handleStopRecord">结束跟读录音</button>
-        <button class="action-secondary" disabled="{{!verifyVoiceReady}}" bindtap="handleClearVerifyVoice">重录短句</button>
-      </view>
-      <button class="action-primary {{verifyVoiceGenerating ? 'action-primary--disabled' : ''}}" loading="{{verifyVoiceGenerating}}" disabled="{{verifyVoiceGenerating || !verifyVoiceReady}}" bindtap="handleGenerateVoicePersona">
-        {{verifyVoiceGenerating ? '正在生成你的音色...' : (voicePersonaReady ? '重新生成我的音色' : '生成我的专属音色')}}
-      </button>
-      <view wx:if="{{voicePersonaReady}}" class="voice-persona-ready">你的专属音色已准备好，接下来出歌会优先使用它。</view>
-    </view>
-
-    <view class="make-card card">
       <text class="eyebrow">Generate</text>
       <view class="section-title">把它做成一首小歌</view>
-      <view class="generate-tip">生成后你可以直接试听，也可以把音频保存到本地文件。音色准备好后，会优先使用你的 voice persona。</view>
-      <button class="action-primary {{generating ? 'action-primary--disabled' : ''}}" loading="{{generating}}" disabled="{{generating || !voiceReady || (voicePersonaValidateText && !voicePersonaReady)}}" bindtap="handleGenerateSong">
+      <view class="generate-tip">录音和歌单会一起送进生成链路。做完后你可以直接试听，也可以把音频保存到本地。</view>
+      <button class="action-primary {{generating ? 'action-primary--disabled' : ''}}" loading="{{generating}}" disabled="{{generating || !voiceReady}}" bindtap="handleGenerateSong">
         {{generating ? generationText : '开始制作我的 AOTD'}}
       </button>
     </view>

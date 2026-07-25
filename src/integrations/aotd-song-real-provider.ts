@@ -67,6 +67,8 @@ const CREATE_TIMEOUT_MS = 20000;
 const STATUS_TIMEOUT_MS = 15000;
 const MAX_PROVIDER_POLLS = 40;
 const PROVIDER_POLL_INTERVAL_MS = 3000;
+const STATUS_FETCH_RETRY_LIMIT = 3;
+const STATUS_FETCH_RETRY_BASE_DELAY_MS = 1200;
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(__dirname, "..", "..");
 const generatedAudioRoot = path.join(projectRoot, "web", "generated", "aotd-song");
@@ -107,6 +109,30 @@ function extractErrorMessage(payload: unknown, fallback: string): string {
     return record.msg.trim();
   }
   return fallback;
+}
+
+export function extractRemoteSongErrorMessage(payload: unknown, fallback: string): string {
+  return extractErrorMessage(payload, fallback);
+}
+
+function isRetryableFetchError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error || "");
+  return /fetch failed|timeout|timed out|network|socket|econnreset|enotfound|eai_again/i.test(message);
+}
+
+function buildCallbackUrl(request: GenerateAotdSongParams, env: ReturnType<typeof loadEnv>): string {
+  return request.callbackUrl || env.aotdSongCallbackUrl || "https://example.com/api/aotd-song/callback";
+}
+
+export function buildLocalVoiceSamplePath(params: Pick<GenerateAotdSongParams, "titleText" | "playlistTitle" | "voiceBase64" | "voiceFormat">): string {
+  const voiceFormat = sanitizeName(params.voiceFormat || "mp3") || "mp3";
+  const fileToken = crypto
+    .createHash("sha1")
+    .update(`${params.titleText}|${params.playlistTitle}|${params.voiceBase64.slice(0, 128)}`)
+    .digest("hex")
+    .slice(0, 16);
+  const fileName = `${sanitizeName(params.titleText || "aotd-voice") || "aotd-voice"}-${fileToken}.${voiceFormat}`;
+  return `/generated/aotd-song/voice-samples/${fileName}`;
 }
 
 function buildGenerationPrompt(request: GenerateAotdSongParams): string {
@@ -209,13 +235,13 @@ async function persistVoiceSample(
     }
   }
   const voiceFormat = sanitizeName(request.voiceFormat || "mp3") || "mp3";
-  const fileToken = crypto
-    .createHash("sha1")
-    .update(`${request.titleText}|${request.playlistTitle}|${request.voiceBase64.slice(0, 128)}`)
-    .digest("hex")
-    .slice(0, 16);
-  const fileName = `${sanitizeName(request.titleText || "aotd-voice") || "aotd-voice"}-${fileToken}.${voiceFormat}`;
-  const relativePath = `/generated/aotd-song/voice-samples/${fileName}`;
+  const relativePath = buildLocalVoiceSamplePath({
+    titleText: request.titleText,
+    playlistTitle: request.playlistTitle,
+    voiceBase64: request.voiceBase64,
+    voiceFormat,
+  });
+  const fileName = path.basename(relativePath);
   const targetPath = path.join(generatedAudioRoot, "voice-samples", fileName);
   await fs.mkdir(path.dirname(targetPath), { recursive: true });
   await fs.writeFile(targetPath, Buffer.from(request.voiceBase64, "base64"));
@@ -255,7 +281,7 @@ function buildUploadCoverRequest(
     customMode: true,
     instrumental: false,
     model,
-    callBackUrl: env.aotdSongCallbackUrl || "https://example.com/api/aotd-song/callback",
+    callBackUrl: buildCallbackUrl(request, env),
     prompt: buildUploadLyrics(request),
     style: buildUploadStyle(request),
     title: request.titleText || "我的 AOTD 小歌",
@@ -282,14 +308,14 @@ function buildTextGenerationRequest(
       customMode: false,
       instrumental: false,
       model: env.aotdSongModel || "V4_5ALL",
-      callBackUrl: env.aotdSongCallbackUrl || "https://example.com/api/aotd-song/callback",
+      callBackUrl: buildCallbackUrl(request, env),
     };
   }
   return {
     customMode: true,
     instrumental: false,
     model: "V5_5",
-    callBackUrl: env.aotdSongCallbackUrl || "https://example.com/api/aotd-song/callback",
+    callBackUrl: buildCallbackUrl(request, env),
     prompt: buildUploadLyrics(request),
     style: buildUploadStyle(request),
     title: request.titleText || "我的 AOTD 小歌",
@@ -306,8 +332,13 @@ function extractTaskId(payload: RemoteSongResponse): string {
   return payload.taskId || payload.id || payload.data?.taskId || "";
 }
 
+export function extractRemoteSongStatus(payload: unknown): string {
+  const record = payload as RemoteSongResponse;
+  return String(record?.status || record?.data?.status || "").toUpperCase();
+}
+
 function extractStatus(payload: RemoteSongResponse): string {
-  return String(payload.status || payload.data?.status || "").toUpperCase();
+  return extractRemoteSongStatus(payload);
 }
 
 function normalizeGeneratedSong(
@@ -348,6 +379,42 @@ function normalizeGeneratedSong(
   };
 }
 
+export async function resolveGeneratedSongFromRemotePayload(
+  payload: unknown,
+  params: {
+    titleText: string;
+    playlistTitle: string;
+    voiceSamplePath?: string;
+  },
+): Promise<GeneratedAotdSong | null> {
+  const requestSeed: GenerateAotdSongParams = {
+    titleText: params.titleText,
+    playlistTitle: params.playlistTitle,
+    tracks: [],
+    voiceBase64: "",
+    voiceFormat: "mp3",
+  };
+  const song = normalizeGeneratedSong(payload as RemoteSongResponse, requestSeed);
+  if (!song) {
+    return null;
+  }
+  try {
+    song.audioPath = await cacheRemoteAudioToLocal({
+      remoteUrl: song.audioPath,
+      targetSubDir: "remote-audio",
+      fileNamePrefix: song.title || params.titleText || "aotd-song",
+    });
+  } catch (error) {
+    console.warn("[aotd-song] failed to cache remote audio, keep original url", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+  if (params.voiceSamplePath && !song.voiceSamplePath) {
+    song.voiceSamplePath = params.voiceSamplePath;
+  }
+  return song;
+}
+
 async function postJson(url: string, apiKey: string, body: object): Promise<RemoteSongResponse> {
   const response = await fetch(url, {
     method: "POST",
@@ -378,6 +445,22 @@ async function getJson(url: string, apiKey: string): Promise<RemoteSongResponse>
     throw new Error(extractErrorMessage(payload, `AOTD song provider status failed: ${response.status}`));
   }
   return payload;
+}
+
+async function getJsonWithRetry(url: string, apiKey: string): Promise<RemoteSongResponse> {
+  let lastError: unknown = null;
+  for (let attempt = 0; attempt < STATUS_FETCH_RETRY_LIMIT; attempt += 1) {
+    try {
+      return await getJson(url, apiKey);
+    } catch (error) {
+      lastError = error;
+      if (!isRetryableFetchError(error) || attempt === STATUS_FETCH_RETRY_LIMIT - 1) {
+        throw error;
+      }
+      await sleep(STATUS_FETCH_RETRY_BASE_DELAY_MS * (attempt + 1));
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error("真实音乐服务状态查询失败");
 }
 
 export function isRealAotdSongProviderConfigured(): boolean {
@@ -448,7 +531,7 @@ export async function generateAotdSongViaRemoteProvider(
   for (let attempt = 0; attempt < MAX_PROVIDER_POLLS; attempt += 1) {
     await sleep(PROVIDER_POLL_INTERVAL_MS);
     const statusUrl = `${baseUrl}${normalizePath(env.aotdSongStatusPath, taskId)}`;
-    const statusPayload = await getJson(statusUrl, env.aotdSongApiKey);
+    const statusPayload = await getJsonWithRetry(statusUrl, env.aotdSongApiKey);
     const status = extractStatus(statusPayload);
 
     const completedSong = normalizeGeneratedSong(statusPayload, params);

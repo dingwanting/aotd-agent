@@ -301,6 +301,9 @@ export class AotdSongStore {
       if (!task) {
         return;
       }
+      if (task.status === "completed") {
+        return;
+      }
       task.status = "failed";
       task.errorMessage = errorMessage.slice(0, 1000);
       task.updatedAt = new Date().toISOString();
@@ -312,7 +315,7 @@ export class AotdSongStore {
       `
         UPDATE aotd_song_task
         SET status = 'failed', error_message = ?, updated_at = ?
-        WHERE id = ?
+        WHERE id = ? AND status <> 'completed'
       `,
       [errorMessage.slice(0, 1000), nowSql(), id],
     );

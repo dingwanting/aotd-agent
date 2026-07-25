@@ -19,6 +19,7 @@ export interface GenerateAotdSongParams {
   voiceBase64: string;
   voiceFormat: string;
   voicePersonaId?: string;
+  callbackUrl?: string;
 }
 
 export interface GeneratedAotdSong {

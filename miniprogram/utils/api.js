@@ -694,22 +694,6 @@ async function requestAotdSongGeneration(payload) {
   throw new Error("制作时间有点长，请稍后再回来看看");
 }
 
-async function requestVoicePersonaPrepare(payload) {
-  const response = await callAotdSongApi("/api/aotd-song/voice-persona/prepare", "POST", payload);
-  if (!response || !response.voicePersona || !response.voicePersona.taskId || !response.voicePersona.validateInfo) {
-    throw new Error("没有拿到跟读短句");
-  }
-  return response.voicePersona;
-}
-
-async function requestVoicePersonaConfirm(payload) {
-  const response = await callAotdSongApi("/api/aotd-song/voice-persona/confirm", "POST", payload);
-  if (!response || !response.voicePersona || !response.voicePersona.voiceId) {
-    throw new Error("没有生成成功音色");
-  }
-  return response.voicePersona;
-}
-
 module.exports = {
   requestRecommendation,
   loadResultIfMatched,
@@ -720,6 +704,4 @@ module.exports = {
   requestEveningReminderStatus,
   createEveningReminder,
   requestAotdSongGeneration,
-  requestVoicePersonaPrepare,
-  requestVoicePersonaConfirm,
 };
