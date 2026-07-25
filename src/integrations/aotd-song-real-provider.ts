@@ -344,12 +344,14 @@ function buildUploadCoverRequest(
     prompt: buildUploadLyrics(request, previewCount),
     style: buildUploadStyle(request),
     title: request.titleText || "我的 AOTD 小歌",
-    duration: 60,
     negativeTags: "heavy metal, aggressive rap, noisy edm, distorted screaming",
     styleWeight,
     weirdnessConstraint: 0.28,
     audioWeight,
   };
+  if (model === "V5_5") {
+    payload.duration = 60;
+  }
   if (personaId) {
     payload.personaId = personaId;
     payload.personaModel = personaModel || "style_persona";
@@ -374,14 +376,13 @@ function buildTextGenerationRequest(
       prompt: buildUploadLyrics(request, previewCount) || buildGenerationPrompt(request),
       style: buildUploadStyle(request),
       title: request.titleText || "我的 AOTD 小歌",
-      duration: 60,
       negativeTags: "heavy metal, aggressive rap, noisy edm, distorted screaming, childish melody",
       styleWeight,
       weirdnessConstraint: 0.3,
       audioWeight,
     };
   }
-  return {
+  const voicePayload: Record<string, unknown> = {
     customMode: true,
     instrumental: false,
     model: "V5_5",
@@ -392,11 +393,14 @@ function buildTextGenerationRequest(
     personaId: voicePersonaId,
     personaModel: "voice_persona",
     negativeTags: "heavy metal, aggressive rap, noisy edm, distorted screaming",
-    duration: 60,
     styleWeight,
     weirdnessConstraint: 0.28,
     audioWeight: Math.max(audioWeight, 0.84),
   };
+  if (voicePayload.model === "V5_5") {
+    voicePayload.duration = 60;
+  }
+  return voicePayload;
 }
 
 function extractTaskId(payload: RemoteSongResponse): string {
