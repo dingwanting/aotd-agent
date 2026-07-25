@@ -15,101 +15,193 @@
   </view>
 
   <block wx:else>
-    <view class="cover card">
-      <view class="cover-shell">
-        <view class="cover-mark">
-          <text class="eyebrow">Tonight Album</text>
-          <text class="cover-badge">AOTD</text>
-        </view>
-        <view class="cover-body">
-          <view class="cover-profile">
-            <image wx:if="{{profileAvatarUrl}}" class="cover-avatar" src="{{profileAvatarUrl}}" mode="aspectFill"></image>
-            <view class="cover-identity">
-              <view class="cover-name">{{profileNickname}}</view>
-              <view class="cover-caption">今晚由你亲自开场</view>
-            </view>
-          </view>
-          <view class="cover-title">{{result.playlist.title}}</view>
-          <view class="cover-subtitle muted">{{result.playlist.subtitle}}</view>
-          <view class="cover-meta">
-            <text class="cover-chip">{{result.playlist.tracks.length}} 首曲目</text>
-            <text class="cover-chip">首推 {{result.playlist.tracks[0].song.title}}</text>
-            <text class="cover-chip">先听再往下翻</text>
-          </view>
-        </view>
-      </view>
-    </view>
-
-    <view class="tracks">
-      <text class="eyebrow">Tonight Queue</text>
+    <view class="result-tabs card">
       <view
-        wx:for="{{result.playlist.tracks}}"
-        wx:key="rank"
-        class="track card"
+        class="result-tab {{activeTab === 'playlist' ? 'result-tab--active' : ''}}"
+        data-tab="playlist"
+        bindtap="handleSwitchTab"
       >
-        <view class="track-main">
-          <view class="track-rank">#{{item.rank}}</view>
-          <view class="track-copy">
-            <view class="track-title-row">
-              <view class="track-title">{{item.song.title}}</view>
-              <view wx:if="{{item.moodTag}}" class="track-moodtag">{{item.moodTag}}</view>
-            </view>
-            <view class="track-artist muted">{{item.song.artist}}</view>
-            <view class="track-keyword">搜索词：{{item.song.cliKeyword || item.song.title + ' ' + item.song.artist}}</view>
-          </view>
-        </view>
-        <view class="track-actions">
-          <view
-            wx:if="{{supportsInlineAudio}}"
-            class="play-button {{playingTrackIndex === index ? 'play-button--active' : ''}} {{loadingTrackIndex === index ? 'play-button--loading' : ''}}"
-            data-index="{{index}}"
-            bindtap="handlePlayTrack"
-          >
-            {{
-              loadingTrackIndex === index
-                ? '正在缓冲...'
-                : playingTrackIndex === index
-                  ? '暂停15秒试听'
-                  : '15秒试听'
-            }}
-          </view>
-          <view class="copy-button {{copiedTrackIndex === index ? 'copy-button--active' : ''}} {{supportsInlineAudio ? '' : 'copy-button--single'}}" data-index="{{index}}" bindtap="handleCopyTrackKeyword">
-            {{copiedTrackIndex === index ? '已复制歌名' : '复制歌名'}}
-          </view>
-        </view>
+        AOTD歌单
+      </view>
+      <view
+        class="result-tab {{activeTab === 'my-aotd' ? 'result-tab--active' : ''}}"
+        data-tab="my-aotd"
+        bindtap="handleSwitchTab"
+      >
+        我的AOTD
       </view>
     </view>
 
-    <view class="result-primary-action">
-      <view class="report-entry card {{posterGenerating ? 'report-entry--disabled' : ''}}" bindtap="handleGeneratePoster">
-        <view class="report-entry__copy">
-          <text class="report-entry__eyebrow">AOTD Report</text>
-          <text class="report-entry__title">{{posterGenerating ? '正在生成 AOTD 报告' : '生成 AOTD 报告'}}</text>
-          <text class="report-entry__desc">把今晚歌单整理成一张陪伴报告~</text>
+    <block wx:if="{{activeTab === 'playlist'}}">
+      <view class="cover card">
+        <view class="cover-shell">
+          <view class="cover-mark">
+            <text class="eyebrow">Tonight Album</text>
+            <text class="cover-badge">AOTD</text>
+          </view>
+          <view class="cover-body">
+            <view class="cover-profile">
+              <image wx:if="{{profileAvatarUrl}}" class="cover-avatar" src="{{profileAvatarUrl}}" mode="aspectFill"></image>
+              <view class="cover-identity">
+                <view class="cover-name">{{profileNickname}}</view>
+                <view class="cover-caption">今晚由你亲自开场</view>
+              </view>
+            </view>
+            <view class="cover-title">{{result.playlist.title}}</view>
+            <view class="cover-subtitle muted">{{result.playlist.subtitle}}</view>
+            <view class="cover-meta">
+              <text class="cover-chip">{{result.playlist.tracks.length}} 首曲目</text>
+              <text class="cover-chip">首推 {{result.playlist.tracks[0].song.title}}</text>
+              <text class="cover-chip">先听再往下翻</text>
+            </view>
+          </view>
         </view>
-        <view class="report-entry__cta">{{posterGenerating ? '请稍候' : reportEntryCtaText}}</view>
       </view>
-    </view>
-    <view class="result-secondary-actions">
-      <view class="result-action-pill result-action-pill--accent reminder-button {{reminderEnabled ? 'reminder-button--active' : ''}}" bindtap="handleSubscribeReminder">
-        <view class="reminder-button__content">
-          <text class="reminder-button__label">{{reminderEnabled ? '继续陪伴已开启' : (reminderLoading ? reminderLoadingText : '继续陪伴')}}</text>
-          <text wx:if="{{reminderEnabled}}" class="reminder-button__meta">{{reminderDateText}}会提醒你</text>
+
+      <view class="tracks">
+        <text class="eyebrow">Tonight Queue</text>
+        <view
+          wx:for="{{result.playlist.tracks}}"
+          wx:key="rank"
+          class="track card"
+        >
+          <view class="track-main">
+            <view class="track-rank">#{{item.rank}}</view>
+            <view class="track-copy">
+              <view class="track-title-row">
+                <view class="track-title">{{item.song.title}}</view>
+                <view wx:if="{{item.moodTag}}" class="track-moodtag">{{item.moodTag}}</view>
+              </view>
+              <view class="track-artist muted">{{item.song.artist}}</view>
+              <view class="track-keyword">搜索词：{{item.song.cliKeyword || item.song.title + ' ' + item.song.artist}}</view>
+            </view>
+          </view>
+          <view class="track-actions">
+            <view
+              wx:if="{{supportsInlineAudio}}"
+              class="play-button {{playingTrackIndex === index ? 'play-button--active' : ''}} {{loadingTrackIndex === index ? 'play-button--loading' : ''}}"
+              data-index="{{index}}"
+              bindtap="handlePlayTrack"
+            >
+              {{
+                loadingTrackIndex === index
+                  ? '正在缓冲...'
+                  : playingTrackIndex === index
+                    ? '暂停15秒试听'
+                    : '15秒试听'
+              }}
+            </view>
+            <view class="copy-button {{copiedTrackIndex === index ? 'copy-button--active' : ''}} {{supportsInlineAudio ? '' : 'copy-button--single'}}" data-index="{{index}}" bindtap="handleCopyTrackKeyword">
+              {{copiedTrackIndex === index ? '已复制歌名' : '复制歌名'}}
+            </view>
+          </view>
         </view>
       </view>
-      <view class="result-action-pill result-action-pill--quiet" bindtap="handleRestart">重新回答</view>
-    </view>
-    <view wx:if="{{!reminderEnabled}}" class="result-action-hint muted">
-      {{reminderEnabled ? reminderTimeText + ' 会提醒你回来' : '开启后会在明天 18:00 提醒你回来'}}
-    </view>
-    <view class="song-lab-entry card" bindtap="handleOpenMakeAotd">
-      <view class="song-lab-entry__copy">
-        <text class="song-lab-entry__eyebrow">My AOTD</text>
-        <text class="song-lab-entry__title">制作我的 AOTD</text>
-        <text class="song-lab-entry__desc">录下这份标题文案，把今晚 5 首歌做成你的专属小歌</text>
+
+      <view class="result-primary-action">
+        <view class="report-entry card {{posterGenerating ? 'report-entry--disabled' : ''}}" bindtap="handleGeneratePoster">
+          <view class="report-entry__copy">
+            <text class="report-entry__eyebrow">AOTD Report</text>
+            <text class="report-entry__title">{{posterGenerating ? '正在生成 AOTD 报告' : '生成 AOTD 报告'}}</text>
+            <text class="report-entry__desc">把今晚歌单整理成一张陪伴报告~</text>
+          </view>
+          <view class="report-entry__cta">{{posterGenerating ? '请稍候' : reportEntryCtaText}}</view>
+        </view>
       </view>
-      <view class="song-lab-entry__cta">去试试</view>
-    </view>
+      <view class="result-secondary-actions">
+        <view class="result-action-pill result-action-pill--accent reminder-button {{reminderEnabled ? 'reminder-button--active' : ''}}" bindtap="handleSubscribeReminder">
+          <view class="reminder-button__content">
+            <text class="reminder-button__label">{{reminderEnabled ? '继续陪伴已开启' : (reminderLoading ? reminderLoadingText : '继续陪伴')}}</text>
+            <text wx:if="{{reminderEnabled}}" class="reminder-button__meta">{{reminderDateText}}会提醒你</text>
+          </view>
+        </view>
+        <view class="result-action-pill result-action-pill--quiet" bindtap="handleRestart">重新回答</view>
+      </view>
+      <view wx:if="{{!reminderEnabled}}" class="result-action-hint muted">
+        {{reminderEnabled ? reminderTimeText + ' 会提醒你回来' : '开启后会在明天 18:00 提醒你回来'}}
+      </view>
+      <view class="song-lab-entry card" bindtap="handleOpenMakeAotd">
+        <view class="song-lab-entry__copy">
+          <text class="song-lab-entry__eyebrow">My AOTD</text>
+          <text class="song-lab-entry__title">制作我的 AOTD</text>
+          <text class="song-lab-entry__desc">录下这份标题文案，把今晚 5 首歌做成你的专属小歌</text>
+        </view>
+        <view class="song-lab-entry__cta">去试试</view>
+      </view>
+    </block>
+
+    <block wx:else>
+      <view class="make-card card">
+        <text class="eyebrow">AOTD Song Lab</text>
+        <view class="make-title">制作我的 AOTD</view>
+        <view class="make-desc">参考这次 5 首歌的氛围，把你读出的主标题做成一首更像今晚心情的小歌。</view>
+        <view class="make-note">现在会先缓存这 5 首歌的试听片段，再结合你的录音一起调歌的曲风和人声方向。</view>
+      </view>
+
+      <view class="make-card card">
+        <text class="eyebrow">Title</text>
+        <view class="section-title">先定下这首小歌的标题</view>
+        <input
+          class="title-input"
+          value="{{titleText}}"
+          maxlength="24"
+          placeholder="比如：今晚先抱抱自己"
+          bindinput="handleSongTitleInput"
+        />
+      </view>
+
+      <view class="make-card card">
+        <text class="eyebrow">Source Tracks</text>
+        <view class="section-title">这次会参考的 5 首歌</view>
+        <view class="source-tracks">
+          <view wx:for="{{result.playlist.tracks}}" wx:key="rank" class="source-track">
+            <text class="source-track__rank">#{{item.rank}}</text>
+            <view class="source-track__copy">
+              <view class="source-track__title">{{item.song.title}}</view>
+              <view class="source-track__artist muted">{{item.song.artist}}</view>
+            </view>
+          </view>
+        </view>
+      </view>
+
+      <view class="make-card card">
+        <text class="eyebrow">Voice</text>
+        <view class="section-title">先录一段 8-12 秒标题语音</view>
+        <view class="voice-status {{recording ? 'voice-status--recording' : ''}}">
+          {{recording ? ('正在录音 ' + recordDurationText) : voiceStatusText}}
+        </view>
+        <view class="generate-tip">别只读标题，尽量连续说 2-3 句完整的话，比如你今晚的状态、想被陪伴的方式，这样更容易贴近你的声音。</view>
+        <view class="voice-actions">
+          <button wx:if="{{!recording}}" class="action-primary" bindtap="handleStartSongRecord">开始录音</button>
+          <button wx:if="{{recording}}" class="action-primary" bindtap="handleStopSongRecord">结束录音</button>
+          <button class="action-secondary" disabled="{{!voiceReady}}" bindtap="handleClearSongVoice">重录一遍</button>
+        </view>
+      </view>
+
+      <view class="make-card card">
+        <text class="eyebrow">Generate</text>
+        <view class="section-title">把它做成一首小歌</view>
+        <view class="generate-tip">系统会先缓存 5 首参考歌的试听，再把它们的风格标签和你的录音一起送进生成链路。做完后你可以直接试听，也可以把音频保存到本地。</view>
+        <button class="action-primary {{generatingSong ? 'action-primary--disabled' : ''}}" loading="{{generatingSong}}" disabled="{{generatingSong || !voiceReady}}" bindtap="handleGenerateMyAotd">
+          {{generatingSong ? generationText : '开始制作我的 AOTD'}}
+        </button>
+      </view>
+
+      <view wx:if="{{songResult}}" class="make-card card">
+        <text class="eyebrow">Result</text>
+        <view class="section-title">{{songResult.title || '我的 AOTD 小歌'}}</view>
+        <view class="result-desc">{{songResult.summary}}</view>
+        <view class="result-meta">{{songMetaText}}</view>
+        <view class="result-actions">
+          <button class="action-primary" bindtap="handleToggleGeneratedSongPlay">{{playingSong ? '暂停小歌' : '播放小歌'}}</button>
+          <button class="action-secondary" bindtap="handleSaveGeneratedSong">{{savedSongPath ? '已保存到本地' : '保存音频到本地'}}</button>
+        </view>
+        <view wx:if="{{songResult.voiceSampleUrl}}" class="voice-preview" bindtap="handleToggleGeneratedVoiceSample">
+          {{playingVoiceSample ? '暂停标题录音' : '试听标题录音'}}
+        </view>
+        <view class="result-note muted">{{generationNote}}</view>
+      </view>
+    </block>
 
     <view wx:if="{{showPosterPreview}}" class="poster-preview-mask" catchtouchmove="noop">
       <view class="poster-preview-sheet card">

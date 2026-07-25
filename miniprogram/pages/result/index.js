@@ -6,6 +6,7 @@ const {
   trackUserEvent,
   requestEveningReminderStatus,
   createEveningReminder,
+  requestAotdSongGeneration,
 } = require("../../utils/api");
 const {
   API_BASE_URL,
@@ -32,6 +33,12 @@ const POSTER_TEMPLATE_WIDTH = 1020;
 const POSTER_TEMPLATE_HEIGHT = 1541;
 const EVENING_REMINDER_TEMPLATE_ID = "juig4kKFh82FrsxB-gjvpIgNqn3fZgCEB2duDNCuLjY";
 const REPORT_ENTRY_EMOJIS = ["✨", "💗", "🎧", "🌙", "🫧", "🎼"];
+const RESULT_TABS = {
+  PLAYLIST: "playlist",
+  MY_AOTD: "my-aotd",
+};
+const MAX_RECORD_DURATION_MS = 12000;
+const MIN_RECORD_DURATION_MS = 8000;
 
 function formatReminderDateText(remindAt) {
   if (!remindAt) {
@@ -48,6 +55,33 @@ function pickReportEntryCtaText() {
 function normalizeCoverTitle(rawTitle) {
   const title = String(rawTitle || "").trim();
   return title || "AOTD|今晚的歌单已经备好";
+}
+
+function formatDuration(ms) {
+  const totalSeconds = Math.max(1, Math.round((ms || 0) / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
+
+function mapTrackForSongGeneration(track) {
+  const song = track && track.song ? track.song : {};
+  return {
+    title: song.title || "",
+    artist: song.artist || "",
+    originalId: song.originalId ? String(song.originalId) : undefined,
+    genre: song.genre || undefined,
+    moods: Array.isArray(song.moods) ? song.moods : [],
+    scenes: Array.isArray(song.scenes) ? song.scenes : [],
+    tags: Array.isArray(song.tags) ? song.tags : [],
+    language: song.language || undefined,
+    energy: song.energy || undefined,
+  };
+}
+
+function getFileExtension(filePath) {
+  const match = String(filePath || "").match(/\.([a-zA-Z0-9]+)(?:\?|$)/);
+  return match && match[1] ? match[1].toLowerCase() : "mp3";
 }
 
 function applyCoverTitle(result) {
@@ -417,6 +451,7 @@ Page({
     loading: true,
     errorMessage: "",
     result: null,
+    activeTab: RESULT_TABS.PLAYLIST,
     profileNickname: FALLBACK_NICKNAME,
     profileAvatarUrl: "",
     profileAvatarFileId: "",
@@ -435,7 +470,22 @@ Page({
     reminderLoading: false,
     reminderLoadingText: "",
     reminderTimeText: "明天 18:00",
-    reminderDateText: "明天"
+    reminderDateText: "明天",
+    titleText: "",
+    recording: false,
+    recordDurationText: "0:00",
+    voiceReady: false,
+    voiceTempFilePath: "",
+    voiceDurationMs: 0,
+    voiceStatusText: "还没有录音，连续说两三句，让这首歌更像你的声音。",
+    generatingSong: false,
+    generationText: "正在为你制作...",
+    songResult: null,
+    songMetaText: "",
+    generationNote: "",
+    playingSong: false,
+    playingVoiceSample: false,
+    savedSongPath: "",
   },
 
   onShow() {
@@ -443,6 +493,7 @@ Page({
     this.audioErrorLogs = this.audioErrorLogs || [];
     this.autoAdvanceOnEnd = false;
     this.autoAdvanceTimer = null;
+    this.ensureRecorderManager();
     this.loadResult();
   },
 
@@ -456,6 +507,7 @@ Page({
       this.autoAdvanceTimer = null;
     }
     this.destroyAudio();
+    this.destroySongAudio();
   },
 
   onHide() {
@@ -473,6 +525,13 @@ Page({
       this.setData({
         playingTrackIndex: -1,
         loadingTrackIndex: -1
+      });
+    }
+    if (this.songAudioContext) {
+      this.songAudioContext.stop();
+      this.setData({
+        playingSong: false,
+        playingVoiceSample: false,
       });
     }
   },
@@ -505,7 +564,19 @@ Page({
         showNicknameAuth: isFallbackNickname(nickname),
         posterReady: false,
         posterImagePath: "",
-        showPosterPreview: false
+        showPosterPreview: false,
+        titleText: stripPlaylistPrefix(cached.playlist.title),
+        voiceReady: false,
+        voiceTempFilePath: "",
+        voiceDurationMs: 0,
+        recordDurationText: "0:00",
+        voiceStatusText: "还没有录音，连续说两三句，让这首歌更像你的声音。",
+        songResult: null,
+        songMetaText: "",
+        generationNote: "",
+        savedSongPath: "",
+        playingSong: false,
+        playingVoiceSample: false,
       });
       trackUserEvent({ type: "result_view_cached", answers }).catch(() => {});
       this.autoPlayTopTrack(cached);
@@ -533,7 +604,19 @@ Page({
         showNicknameAuth: isFallbackNickname(nickname),
         posterReady: false,
         posterImagePath: "",
-        showPosterPreview: false
+        showPosterPreview: false,
+        titleText: stripPlaylistPrefix(result.playlist.title),
+        voiceReady: false,
+        voiceTempFilePath: "",
+        voiceDurationMs: 0,
+        recordDurationText: "0:00",
+        voiceStatusText: "还没有录音，连续说两三句，让这首歌更像你的声音。",
+        songResult: null,
+        songMetaText: "",
+        generationNote: "",
+        savedSongPath: "",
+        playingSong: false,
+        playingVoiceSample: false,
       });
       trackUserEvent({ type: "result_view", answers }).catch(() => {});
       this.autoPlayTopTrack(result);
@@ -665,10 +748,354 @@ Page({
     this.loadResult();
   },
 
-  handleOpenMakeAotd() {
-    wx.navigateTo({
-      url: "/pages/make-aotd/index",
+  handleSwitchTab(event) {
+    const nextTab = event && event.currentTarget && event.currentTarget.dataset ? event.currentTarget.dataset.tab : "";
+    if (!nextTab || nextTab === this.data.activeTab) {
+      return;
+    }
+    this.setData({
+      activeTab: nextTab,
     });
+  },
+
+  handleOpenMakeAotd() {
+    this.setData({
+      activeTab: RESULT_TABS.MY_AOTD,
+    });
+  },
+
+  ensureRecorderManager() {
+    if (this.recorderManager || typeof wx.getRecorderManager !== "function") {
+      return this.recorderManager;
+    }
+    const recorderManager = wx.getRecorderManager();
+    recorderManager.onStart(() => {
+      this.recordStartedAt = Date.now();
+      if (this.recordingTimer) {
+        clearInterval(this.recordingTimer);
+      }
+      this.recordingTimer = setInterval(() => {
+        const durationMs = Date.now() - this.recordStartedAt;
+        this.setData({
+          recordDurationText: formatDuration(durationMs),
+        });
+      }, 250);
+      this.setData({
+        recording: true,
+        recordDurationText: "0:00",
+        voiceStatusText: "正在录音，连续说两三句，语气自然一点就好。",
+      });
+    });
+    recorderManager.onStop((res) => {
+      if (this.recordingTimer) {
+        clearInterval(this.recordingTimer);
+        this.recordingTimer = null;
+      }
+      const durationMs = Date.now() - (this.recordStartedAt || Date.now());
+      const nextDuration = res && typeof res.duration === "number" ? res.duration : durationMs;
+      this.setData({
+        recording: false,
+        voiceReady: Boolean(res && res.tempFilePath),
+        voiceTempFilePath: res && res.tempFilePath ? res.tempFilePath : "",
+        voiceDurationMs: nextDuration,
+        recordDurationText: formatDuration(nextDuration),
+        voiceStatusText: res && res.tempFilePath ? `录好了，时长 ${formatDuration(nextDuration)}` : "录音失败，请再试一次。",
+      });
+    });
+    recorderManager.onError((error) => {
+      if (this.recordingTimer) {
+        clearInterval(this.recordingTimer);
+        this.recordingTimer = null;
+      }
+      this.setData({
+        recording: false,
+        voiceStatusText: error && error.errMsg ? error.errMsg : "录音失败，请重试。",
+      });
+    });
+    this.recorderManager = recorderManager;
+    return recorderManager;
+  },
+
+  async handleStartSongRecord() {
+    if (this.data.recording) {
+      return;
+    }
+    try {
+      await new Promise((resolve, reject) => {
+        wx.authorize({
+          scope: "scope.record",
+          success: resolve,
+          fail: reject,
+        });
+      }).catch(() => Promise.resolve());
+      const recorderManager = this.ensureRecorderManager();
+      recorderManager.start({
+        duration: MAX_RECORD_DURATION_MS,
+        format: "mp3",
+        numberOfChannels: 1,
+        sampleRate: 16000,
+        encodeBitRate: 32000,
+      });
+    } catch (error) {
+      wx.showToast({
+        title: "需要录音权限",
+        icon: "none",
+      });
+    }
+  },
+
+  handleStopSongRecord() {
+    if (!this.data.recording || !this.recorderManager) {
+      return;
+    }
+    this.recorderManager.stop();
+  },
+
+  handleClearSongVoice() {
+    this.setData({
+      voiceReady: false,
+      voiceTempFilePath: "",
+      voiceDurationMs: 0,
+      recordDurationText: "0:00",
+      voiceStatusText: "已清空，重新录一遍吧，尽量说满 8 秒。",
+      songResult: null,
+      songMetaText: "",
+      generationNote: "",
+      savedSongPath: "",
+      playingSong: false,
+      playingVoiceSample: false,
+    });
+  },
+
+  handleSongTitleInput(event) {
+    this.setData({
+      titleText: event && event.detail ? event.detail.value : "",
+    });
+  },
+
+  async uploadSongVoiceFile(filePath) {
+    if (!wx.cloud || typeof wx.cloud.uploadFile !== "function" || typeof wx.cloud.getTempFileURL !== "function") {
+      throw new Error("当前环境不支持录音上传");
+    }
+    const userId = getStorage(STORAGE_KEYS.userId, "guest");
+    const extension = getFileExtension(filePath);
+    const cloudPath = `aotd/voice-sample/${userId}/${Date.now()}-${Math.random().toString(16).slice(2)}.${extension}`;
+    const uploaded = await wx.cloud.uploadFile({
+      cloudPath,
+      filePath,
+    });
+    const tempUrlResult = await wx.cloud.getTempFileURL({
+      fileList: [uploaded.fileID],
+    });
+    const tempFile = tempUrlResult && Array.isArray(tempUrlResult.fileList) ? tempUrlResult.fileList[0] : null;
+    const tempUrl = tempFile && tempFile.tempFileURL ? tempFile.tempFileURL : "";
+    if (!tempUrl) {
+      throw new Error("没有拿到录音上传地址");
+    }
+    return {
+      fileID: uploaded.fileID,
+      tempFileURL: tempUrl,
+    };
+  },
+
+  async handleGenerateMyAotd() {
+    const result = this.data.result;
+    const titleText = String(this.data.titleText || "").trim();
+    if (!titleText) {
+      wx.showToast({
+        title: "先输入主标题",
+        icon: "none",
+      });
+      return;
+    }
+    if (!this.data.voiceReady || !this.data.voiceTempFilePath) {
+      wx.showToast({
+        title: "先录一段标题语音",
+        icon: "none",
+      });
+      return;
+    }
+    if (this.data.voiceDurationMs < MIN_RECORD_DURATION_MS) {
+      wx.showToast({
+        title: "语音太短了，至少录 8 秒",
+        icon: "none",
+      });
+      return;
+    }
+    this.setData({
+      generatingSong: true,
+      generationText: "正在整理你的录音和歌单气质...",
+    });
+    try {
+      this.setData({
+        generationText: "正在上传录音...",
+      });
+      const uploadedVoice = await this.uploadSongVoiceFile(this.data.voiceTempFilePath);
+      this.setData({
+        generationText: "正在生成专属 AOTD 小歌...",
+      });
+      const payload = await requestAotdSongGeneration({
+        titleText,
+        playlistTitle: result.playlist.title,
+        answers: result.answers,
+        tracks: result.playlist.tracks.map(mapTrackForSongGeneration),
+        voiceSourceUrl: uploadedVoice.tempFileURL,
+        voiceFormat: "mp3",
+        voiceDurationMs: this.data.voiceDurationMs,
+      });
+      const song = payload.song || {};
+      this.setData({
+        generatingSong: false,
+        generationText: "正在为你制作...",
+        songResult: song,
+        songMetaText: `${Math.round(song.durationSeconds || 0)} 秒 · ${song.mode === "demo" ? "Demo 音轨" : "专属歌曲"}`,
+        generationNote: payload.meta && payload.meta.note ? payload.meta.note : "",
+        savedSongPath: "",
+      });
+      trackUserEvent({
+        type: "aotd_song_generate_success",
+        titleText,
+        durationSeconds: song.durationSeconds,
+        mode: song.mode,
+      }).catch(() => {});
+    } catch (error) {
+      this.setData({
+        generatingSong: false,
+        generationText: "正在为你制作...",
+      });
+      wx.showToast({
+        title: error && error.message ? error.message : "制作失败，请稍后再试",
+        icon: "none",
+      });
+    }
+  },
+
+  ensureSongAudioContext() {
+    if (this.songAudioContext) {
+      return this.songAudioContext;
+    }
+    const audioContext = wx.createInnerAudioContext();
+    audioContext.autoplay = true;
+    audioContext.obeyMuteSwitch = false;
+    audioContext.onStop(() => {
+      this.setData({
+        playingSong: false,
+        playingVoiceSample: false,
+      });
+    });
+    audioContext.onEnded(() => {
+      this.setData({
+        playingSong: false,
+        playingVoiceSample: false,
+      });
+    });
+    audioContext.onError(() => {
+      this.setData({
+        playingSong: false,
+        playingVoiceSample: false,
+      });
+      wx.showToast({
+        title: "播放失败，请重试",
+        icon: "none",
+      });
+    });
+    this.songAudioContext = audioContext;
+    return audioContext;
+  },
+
+  destroySongAudio() {
+    if (this.songAudioContext) {
+      this.songAudioContext.destroy();
+      this.songAudioContext = null;
+    }
+  },
+
+  playSongAudio(url, type) {
+    if (!url) {
+      return;
+    }
+    const audioContext = this.ensureSongAudioContext();
+    audioContext.src = url;
+    audioContext.title = type === "voice" ? "AOTD 标题录音" : "我的 AOTD 小歌";
+    audioContext.play();
+    this.setData({
+      playingSong: type === "song",
+      playingVoiceSample: type === "voice",
+    });
+  },
+
+  handleToggleGeneratedSongPlay() {
+    if (!this.data.songResult || !this.data.songResult.audioUrl) {
+      return;
+    }
+    if (this.data.playingSong && this.songAudioContext) {
+      this.songAudioContext.stop();
+      return;
+    }
+    this.playSongAudio(this.data.savedSongPath || this.data.songResult.audioUrl, "song");
+  },
+
+  handleToggleGeneratedVoiceSample() {
+    if (!this.data.songResult || !this.data.songResult.voiceSampleUrl) {
+      return;
+    }
+    if (this.data.playingVoiceSample && this.songAudioContext) {
+      this.songAudioContext.stop();
+      return;
+    }
+    this.playSongAudio(this.data.songResult.voiceSampleUrl, "voice");
+  },
+
+  async handleSaveGeneratedSong() {
+    if (this.data.savedSongPath) {
+      wx.showToast({
+        title: "已经保存到本地了",
+        icon: "success",
+      });
+      return;
+    }
+    const song = this.data.songResult;
+    if (!song || !song.audioUrl) {
+      return;
+    }
+    wx.showLoading({
+      title: "正在保存",
+      mask: true,
+    });
+    try {
+      const download = await new Promise((resolve, reject) => {
+        wx.downloadFile({
+          url: song.audioUrl,
+          success: resolve,
+          fail: reject,
+        });
+      });
+      const tempFilePath = download && (download.tempFilePath || download.filePath);
+      if (!tempFilePath) {
+        throw new Error("没有拿到可保存的音频文件");
+      }
+      const saved = await new Promise((resolve, reject) => {
+        wx.saveFile({
+          tempFilePath,
+          success: resolve,
+          fail: reject,
+        });
+      });
+      this.setData({
+        savedSongPath: saved && saved.savedFilePath ? saved.savedFilePath : tempFilePath,
+      });
+      wx.hideLoading();
+      wx.showToast({
+        title: "音频已保存到本地",
+        icon: "success",
+      });
+    } catch (error) {
+      wx.hideLoading();
+      wx.showToast({
+        title: error && error.message ? error.message : "保存失败，请重试",
+        icon: "none",
+      });
+    }
   },
 
   noop() {},
