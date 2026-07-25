@@ -1,5 +1,5 @@
 import { loadEnv } from "../config/env.js";
-import { uploadBase64FileToSuno } from "./suno-file-transfer.js";
+import { persistBase64FileToProject, uploadBase64FileToSuno } from "./suno-file-transfer.js";
 const CREATE_TIMEOUT_MS = 20000;
 const STATUS_TIMEOUT_MS = 15000;
 const POLL_INTERVAL_MS = 2500;
@@ -77,17 +77,34 @@ async function uploadVoiceFile(params: {
   prefix: string;
   titleText: string;
 }): Promise<{ publicPath: string; publicUrl: string }> {
-  const uploaded = await uploadBase64FileToSuno({
-    apiKey: params.apiKey,
-    fileBase64: params.fileBase64,
-    fileFormat: params.fileFormat,
-    uploadPath: `aotd-song/voice-persona/${params.prefix}`,
-    fileNamePrefix: `${params.titleText || params.prefix}-${params.prefix}`,
-  });
-  return {
-    publicPath: uploaded.downloadUrl,
-    publicUrl: uploaded.downloadUrl,
-  };
+  try {
+    const uploaded = await uploadBase64FileToSuno({
+      apiKey: params.apiKey,
+      fileBase64: params.fileBase64,
+      fileFormat: params.fileFormat,
+      uploadPath: `aotd-song/voice-persona/${params.prefix}`,
+      fileNamePrefix: `${params.titleText || params.prefix}-${params.prefix}`,
+    });
+    return {
+      publicPath: uploaded.downloadUrl,
+      publicUrl: uploaded.downloadUrl,
+    };
+  } catch (error) {
+    console.warn("[aotd-song] suno voice file upload failed, fallback to project public url", {
+      prefix: params.prefix,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    const fallbackFile = await persistBase64FileToProject({
+      fileBase64: params.fileBase64,
+      fileFormat: params.fileFormat,
+      targetSubDir: `voice-persona/${params.prefix}`,
+      fileNamePrefix: `${params.titleText || params.prefix}-${params.prefix}`,
+    });
+    if (fallbackFile) {
+      return fallbackFile;
+    }
+    throw error;
+  }
 }
 
 async function postJson(url: string, apiKey: string, body: object): Promise<VoiceValidateResponse> {

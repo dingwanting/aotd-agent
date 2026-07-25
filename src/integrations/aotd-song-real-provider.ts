@@ -4,7 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { loadEnv } from "../config/env.js";
-import { cacheRemoteAudioToLocal, uploadBase64FileToSuno } from "./suno-file-transfer.js";
+import { cacheRemoteAudioToLocal, persistBase64FileToProject, uploadBase64FileToSuno } from "./suno-file-transfer.js";
 
 import type { GenerateAotdSongParams, GeneratedAotdSong } from "./aotd-song-provider.js";
 
@@ -191,16 +191,23 @@ async function persistVoiceSample(
   if (!request.voiceBase64) {
     return null;
   }
-  if (!env.aotdSongApiKey || !env.aotdSongFileUploadBaseUrl) {
-    return null;
+  let uploadedUrl = "";
+  if (env.aotdSongApiKey && env.aotdSongFileUploadBaseUrl) {
+    try {
+      const uploaded = await uploadBase64FileToSuno({
+        apiKey: env.aotdSongApiKey,
+        fileBase64: request.voiceBase64,
+        fileFormat: request.voiceFormat || "mp3",
+        uploadPath: "aotd-song/voice-samples",
+        fileNamePrefix: request.titleText || "aotd-voice",
+      });
+      uploadedUrl = uploaded.downloadUrl;
+    } catch (error) {
+      console.warn("[aotd-song] suno song voice upload failed, fallback to project public url", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
-  const uploaded = await uploadBase64FileToSuno({
-    apiKey: env.aotdSongApiKey,
-    fileBase64: request.voiceBase64,
-    fileFormat: request.voiceFormat || "mp3",
-    uploadPath: "aotd-song/voice-samples",
-    fileNamePrefix: request.titleText || "aotd-voice",
-  });
   const voiceFormat = sanitizeName(request.voiceFormat || "mp3") || "mp3";
   const fileToken = crypto
     .createHash("sha1")
@@ -212,10 +219,25 @@ async function persistVoiceSample(
   const targetPath = path.join(generatedAudioRoot, "voice-samples", fileName);
   await fs.mkdir(path.dirname(targetPath), { recursive: true });
   await fs.writeFile(targetPath, Buffer.from(request.voiceBase64, "base64"));
+  if (uploadedUrl) {
+    return {
+      publicPath: relativePath,
+      publicUrl: uploadedUrl,
+    };
+  }
+  const fallbackFile = await persistBase64FileToProject({
+    fileBase64: request.voiceBase64,
+    fileFormat: request.voiceFormat || "mp3",
+    targetSubDir: "voice-samples",
+    fileNamePrefix: request.titleText || "aotd-voice",
+  });
+  if (!fallbackFile) {
+    return null;
+  }
 
   return {
-    publicPath: relativePath,
-    publicUrl: uploaded.downloadUrl,
+    publicPath: fallbackFile.publicPath,
+    publicUrl: fallbackFile.publicUrl,
   };
 }
 

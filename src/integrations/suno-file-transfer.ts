@@ -35,6 +35,40 @@ function toPosixPath(filePath: string): string {
   return filePath.split(path.sep).join("/");
 }
 
+function isUsablePublicOrigin(origin: string): boolean {
+  try {
+    const targetUrl = new URL(origin);
+    const hostname = targetUrl.hostname.toLowerCase();
+    if (!/^https?:$/i.test(targetUrl.protocol)) {
+      return false;
+    }
+    if (hostname === "localhost" || hostname === "127.0.0.1" || hostname === "example.com") {
+      return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function resolveProjectPublicBaseUrl(): string {
+  const env = loadEnv();
+  if (env.aotdPublicBaseUrl && isUsablePublicOrigin(env.aotdPublicBaseUrl)) {
+    return normalizeBaseUrl(env.aotdPublicBaseUrl);
+  }
+  if (env.aotdSongCallbackUrl) {
+    try {
+      const callbackUrl = new URL(env.aotdSongCallbackUrl);
+      if (isUsablePublicOrigin(callbackUrl.origin)) {
+        return normalizeBaseUrl(callbackUrl.origin);
+      }
+    } catch {
+      return "";
+    }
+  }
+  return "";
+}
+
 function extractErrorMessage(payload: unknown, fallback: string): string {
   if (!payload || typeof payload !== "object") {
     return fallback;
@@ -107,6 +141,28 @@ export async function uploadBase64FileToSuno(params: {
   return {
     downloadUrl: payload.data.downloadUrl,
     mimeType: payload.data.mimeType || "",
+  };
+}
+
+export async function persistBase64FileToProject(params: {
+  fileBase64: string;
+  fileFormat: string;
+  targetSubDir: string;
+  fileNamePrefix: string;
+}): Promise<{ publicPath: string; publicUrl: string } | null> {
+  const publicBaseUrl = resolveProjectPublicBaseUrl();
+  if (!publicBaseUrl) {
+    return null;
+  }
+  const extension = sanitizeName(params.fileFormat || "mp3") || "mp3";
+  const fileName = `${sanitizeName(params.fileNamePrefix) || "aotd-file"}-${crypto.randomUUID().slice(0, 8)}.${extension}`;
+  const relativePath = `/generated/aotd-song/${params.targetSubDir.replace(/^\/+|\/+$/g, "")}/${fileName}`;
+  const absolutePath = path.join(generatedAudioRoot, params.targetSubDir, fileName);
+  await fs.mkdir(path.dirname(absolutePath), { recursive: true });
+  await fs.writeFile(absolutePath, Buffer.from(params.fileBase64, "base64"));
+  return {
+    publicPath: toPosixPath(relativePath),
+    publicUrl: `${publicBaseUrl}${toPosixPath(relativePath)}`,
   };
 }
 
