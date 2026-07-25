@@ -31,6 +31,7 @@ const projectRoot = path.resolve(__dirname, "..");
 const webRoot = path.join(projectRoot, "web");
 const port = Number(process.env.PORT || 4173);
 const AUDIO_STREAM_FETCH_TIMEOUT_MS = 12000;
+const AUDIO_UPLOAD_FETCH_TIMEOUT_MS = 20000;
 const DEFAULT_AUDIO_PREVIEW_BYTES = 256 * 1024;
 const USER_ID_COOKIE = "aotd_uid";
 const AOTD_REMINDER_TEMPLATE_ID = "juig4kKFh82FrsxB-gjvpIgNqn3fZgCEB2duDNCuLjY";
@@ -38,7 +39,7 @@ const AOTD_REMINDER_PAGE = "pages/landing/index";
 
 // 部署版本指纹：每次代码改动必须 bump，方便从云托管日志确认跑的是哪个版本
 // 同时启动时打 dist 文件 hash + 文件 mtime + git HEAD，可以一眼看出"是否在跑新代码"
-const DEPLOY_VERSION = "aotd-2026-07-25-r24-aotd-song-hidden-voice-persona-v1";
+const DEPLOY_VERSION = "aotd-2026-07-25-r25-aotd-song-file-upload-v1";
 
 const appEnv = loadEnv();
 const processingAotdSongTasks = new Set<number>();
@@ -173,6 +174,33 @@ function readUser(req: HttpRequest): UserRecord | undefined {
   const userId = readUserIdFromRequest(req);
   if (!userId) return undefined;
   return userStore.get(userId);
+}
+
+function isSafeRemoteFileUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    return /^https?:$/i.test(parsed.protocol);
+  } catch {
+    return false;
+  }
+}
+
+async function downloadRemoteFileAsBase64(fileUrl: string): Promise<string> {
+  if (!isSafeRemoteFileUrl(fileUrl)) {
+    throw new Error("录音文件地址无效");
+  }
+  const response = await fetch(fileUrl, {
+    method: "GET",
+    signal: AbortSignal.timeout(AUDIO_UPLOAD_FETCH_TIMEOUT_MS),
+  });
+  if (!response.ok) {
+    throw new Error(`录音文件下载失败: ${response.status}`);
+  }
+  const buffer = Buffer.from(await response.arrayBuffer());
+  if (!buffer.length) {
+    throw new Error("录音文件为空");
+  }
+  return buffer.toString("base64");
 }
 
 function publicProfile(
@@ -608,7 +636,8 @@ async function handleAotdSongGenerate(req: HttpRequest, res: HttpResponse) {
   const payload = body as Record<string, unknown>;
   const titleText = typeof payload.titleText === "string" ? payload.titleText.trim() : "";
   const playlistTitle = typeof payload.playlistTitle === "string" ? payload.playlistTitle.trim() : "";
-  const voiceBase64 = typeof payload.voiceBase64 === "string" ? payload.voiceBase64.trim() : "";
+  let voiceBase64 = typeof payload.voiceBase64 === "string" ? payload.voiceBase64.trim() : "";
+  const voiceSourceUrl = typeof payload.voiceSourceUrl === "string" ? payload.voiceSourceUrl.trim() : "";
   const voiceFormat = typeof payload.voiceFormat === "string" ? payload.voiceFormat.trim().toLowerCase() : "mp3";
   const voiceDurationMs = typeof payload.voiceDurationMs === "number" ? payload.voiceDurationMs : 0;
   const voicePersonaId = typeof payload.voicePersonaId === "string" ? payload.voicePersonaId.trim() : "";
@@ -618,12 +647,14 @@ async function handleAotdSongGenerate(req: HttpRequest, res: HttpResponse) {
     sendJson(res, 400, { error: "Missing titleText" });
     return;
   }
-  if (!voiceBase64) {
-    sendJson(res, 400, { error: "Missing voice sample" });
-    return;
-  }
-
   try {
+    if (!voiceBase64) {
+      if (!voiceSourceUrl) {
+        sendJson(res, 400, { error: "Missing voice sample" });
+        return;
+      }
+      voiceBase64 = await downloadRemoteFileAsBase64(voiceSourceUrl);
+    }
     const task = await aotdSongStore.createTask({
       userId,
       titleText,

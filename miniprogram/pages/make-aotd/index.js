@@ -30,6 +30,11 @@ function mapTrackForSongGeneration(track) {
   };
 }
 
+function getFileExtension(filePath) {
+  const match = String(filePath || "").match(/\.([a-zA-Z0-9]+)(?:\?|$)/);
+  return match && match[1] ? match[1].toLowerCase() : "mp3";
+}
+
 Page({
   data: {
     loading: true,
@@ -245,6 +250,31 @@ Page({
     });
   },
 
+  async uploadVoiceFile(filePath) {
+    if (!wx.cloud || typeof wx.cloud.uploadFile !== "function" || typeof wx.cloud.getTempFileURL !== "function") {
+      throw new Error("当前环境不支持录音上传");
+    }
+    const userId = getStorage(STORAGE_KEYS.userId, "guest");
+    const extension = getFileExtension(filePath);
+    const cloudPath = `aotd/voice-sample/${userId}/${Date.now()}-${Math.random().toString(16).slice(2)}.${extension}`;
+    const uploaded = await wx.cloud.uploadFile({
+      cloudPath,
+      filePath,
+    });
+    const tempUrlResult = await wx.cloud.getTempFileURL({
+      fileList: [uploaded.fileID],
+    });
+    const tempFile = tempUrlResult && Array.isArray(tempUrlResult.fileList) ? tempUrlResult.fileList[0] : null;
+    const tempUrl = tempFile && tempFile.tempFileURL ? tempFile.tempFileURL : "";
+    if (!tempUrl) {
+      throw new Error("没有拿到录音上传地址");
+    }
+    return {
+      fileID: uploaded.fileID,
+      tempFileURL: tempUrl,
+    };
+  },
+
   async handleGenerateSong() {
     const result = this.data.result;
     const titleText = String(this.data.titleText || "").trim();
@@ -275,7 +305,10 @@ Page({
     });
 
     try {
-      const voiceBase64 = await this.readVoiceBase64(this.data.voiceTempFilePath);
+      this.setData({
+        generationText: "正在上传录音并生成你的专属音色...",
+      });
+      const uploadedVoice = await this.uploadVoiceFile(this.data.voiceTempFilePath);
       this.setData({
         generationText: "正在生成你的专属音色和 AOTD 小歌...",
       });
@@ -284,7 +317,7 @@ Page({
         playlistTitle: result.playlist.title,
         answers: result.answers,
         tracks: result.playlist.tracks.map(mapTrackForSongGeneration),
-        voiceBase64,
+        voiceSourceUrl: uploadedVoice.tempFileURL,
         voiceFormat: "mp3",
         voiceDurationMs: this.data.voiceDurationMs,
       });
