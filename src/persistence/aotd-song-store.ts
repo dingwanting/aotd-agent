@@ -2,6 +2,9 @@ import type { Pool, ResultSetHeader, RowDataPacket } from "mysql2/promise";
 
 import { getMysqlPool } from "./mysql.js";
 
+const MYSQL_RETRY_LIMIT = 3;
+const MYSQL_RETRY_DELAY_MS = 250;
+
 export type AotdSongTaskStatus = "pending" | "processing" | "completed" | "failed";
 
 export interface AotdSongTaskRecord {
@@ -59,6 +62,61 @@ function toIso(value: Date | string | null): string | undefined {
     return undefined;
   }
   return new Date(value).toISOString();
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function readMysqlErrorCode(error: unknown): string {
+  if (!error || typeof error !== "object") {
+    return "";
+  }
+  const candidate = error as { code?: string; errno?: string | number; message?: string };
+  if (candidate.code) {
+    return String(candidate.code).toUpperCase();
+  }
+  if (candidate.errno !== undefined && candidate.errno !== null) {
+    return String(candidate.errno).toUpperCase();
+  }
+  return "";
+}
+
+function readMysqlErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message || "";
+  }
+  return String(error || "");
+}
+
+function isRetryableMysqlError(error: unknown): boolean {
+  const code = readMysqlErrorCode(error);
+  const message = readMysqlErrorMessage(error).toUpperCase();
+  return (
+    code === "ECONNRESET" ||
+    code === "ETIMEDOUT" ||
+    code === "PROTOCOL_CONNECTION_LOST" ||
+    code === "PROTOCOL_ENQUEUE_AFTER_FATAL_ERROR" ||
+    message.includes("ECONNRESET") ||
+    message.includes("ETIMEDOUT") ||
+    message.includes("PROTOCOL_CONNECTION_LOST")
+  );
+}
+
+async function runMysqlWithRetry<T>(operation: () => Promise<T>): Promise<T> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < MYSQL_RETRY_LIMIT; attempt += 1) {
+    try {
+      return await operation();
+    } catch (error) {
+      lastError = error;
+      if (!isRetryableMysqlError(error) || attempt === MYSQL_RETRY_LIMIT - 1) {
+        throw error;
+      }
+      await sleep(MYSQL_RETRY_DELAY_MS * (attempt + 1));
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error("MySQL query failed");
 }
 
 function toTaskRecord(row: AotdSongTaskRow): AotdSongTaskRecord {
@@ -126,40 +184,51 @@ export class AotdSongStore {
     }
     if (!this.schemaReady) {
       this.schemaReady = (async () => {
-        await this.pool!.query(`
-          CREATE TABLE IF NOT EXISTS aotd_song_task (
-            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
-            user_id VARCHAR(64) NOT NULL,
-            title_text VARCHAR(255) NOT NULL,
-            playlist_title VARCHAR(255) NOT NULL,
-            tracks_json JSON NOT NULL,
-            voice_base64 LONGTEXT NOT NULL,
-            voice_format VARCHAR(32) NOT NULL DEFAULT 'mp3',
-            voice_duration_ms INT NULL,
-            voice_persona_id VARCHAR(255) NULL,
-            status ENUM('pending','processing','completed','failed') NOT NULL DEFAULT 'pending',
-            provider_mode VARCHAR(64) NOT NULL DEFAULT 'demo',
-            song_title VARCHAR(255) NULL,
-            song_summary TEXT NULL,
-            song_duration_seconds INT NULL,
-            song_audio_path VARCHAR(500) NULL,
-            song_voice_sample_path VARCHAR(500) NULL,
-            error_message TEXT NULL,
-            completed_at DATETIME NULL,
-            created_at DATETIME NOT NULL,
-            updated_at DATETIME NOT NULL,
-            INDEX idx_user_id_created_at (user_id, created_at),
-            INDEX idx_status_created_at (status, created_at)
-          ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
-        `);
-        await this.pool!.query(`
-          ALTER TABLE aotd_song_task
-          ADD COLUMN voice_duration_ms INT NULL AFTER voice_format
-        `).catch(() => undefined);
-        await this.pool!.query(`
-          ALTER TABLE aotd_song_task
-          ADD COLUMN voice_persona_id VARCHAR(255) NULL AFTER voice_duration_ms
-        `).catch(() => undefined);
+        try {
+          await runMysqlWithRetry(() =>
+            this.pool!.query(`
+              CREATE TABLE IF NOT EXISTS aotd_song_task (
+                id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                user_id VARCHAR(64) NOT NULL,
+                title_text VARCHAR(255) NOT NULL,
+                playlist_title VARCHAR(255) NOT NULL,
+                tracks_json JSON NOT NULL,
+                voice_base64 LONGTEXT NOT NULL,
+                voice_format VARCHAR(32) NOT NULL DEFAULT 'mp3',
+                voice_duration_ms INT NULL,
+                voice_persona_id VARCHAR(255) NULL,
+                status ENUM('pending','processing','completed','failed') NOT NULL DEFAULT 'pending',
+                provider_mode VARCHAR(64) NOT NULL DEFAULT 'demo',
+                song_title VARCHAR(255) NULL,
+                song_summary TEXT NULL,
+                song_duration_seconds INT NULL,
+                song_audio_path VARCHAR(500) NULL,
+                song_voice_sample_path VARCHAR(500) NULL,
+                error_message TEXT NULL,
+                completed_at DATETIME NULL,
+                created_at DATETIME NOT NULL,
+                updated_at DATETIME NOT NULL,
+                INDEX idx_user_id_created_at (user_id, created_at),
+                INDEX idx_status_created_at (status, created_at)
+              ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
+            `),
+          );
+          await runMysqlWithRetry(() =>
+            this.pool!.query(`
+              ALTER TABLE aotd_song_task
+              ADD COLUMN voice_duration_ms INT NULL AFTER voice_format
+            `).catch(() => undefined),
+          );
+          await runMysqlWithRetry(() =>
+            this.pool!.query(`
+              ALTER TABLE aotd_song_task
+              ADD COLUMN voice_persona_id VARCHAR(255) NULL AFTER voice_duration_ms
+            `).catch(() => undefined),
+          );
+        } catch (error) {
+          this.schemaReady = null;
+          throw error;
+        }
       })();
     }
     await this.schemaReady;
@@ -187,31 +256,40 @@ export class AotdSongStore {
     }
 
     await this.ensureSchema();
-    const timestamp = nowSql();
-    const [result] = await this.pool.query<ResultSetHeader>(
-      `
-        INSERT INTO aotd_song_task (
-          user_id, title_text, playlist_title, tracks_json, voice_base64, voice_format, voice_duration_ms,
-          voice_persona_id,
-          status, provider_mode, song_title, song_summary, song_duration_seconds,
-          song_audio_path, song_voice_sample_path, error_message, completed_at, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, NULL, NULL, NULL, NULL, NULL, NULL, NULL, ?, ?)
-      `,
-      [
-        params.userId,
-        params.titleText,
-        params.playlistTitle,
-        params.tracksJson,
-        params.voiceBase64,
-        params.voiceFormat,
-        params.voiceDurationMs || null,
-        params.voicePersonaId || null,
-        params.providerMode,
-        timestamp,
-        timestamp,
-      ],
-    );
-    return (await this.findById(result.insertId)) as AotdSongTaskRecord;
+    try {
+      const timestamp = nowSql();
+      const [result] = await runMysqlWithRetry(() =>
+        this.pool!.query<ResultSetHeader>(
+          `
+            INSERT INTO aotd_song_task (
+              user_id, title_text, playlist_title, tracks_json, voice_base64, voice_format, voice_duration_ms,
+              voice_persona_id,
+              status, provider_mode, song_title, song_summary, song_duration_seconds,
+              song_audio_path, song_voice_sample_path, error_message, completed_at, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, NULL, NULL, NULL, NULL, NULL, NULL, NULL, ?, ?)
+          `,
+          [
+            params.userId,
+            params.titleText,
+            params.playlistTitle,
+            params.tracksJson,
+            params.voiceBase64,
+            params.voiceFormat,
+            params.voiceDurationMs || null,
+            params.voicePersonaId || null,
+            params.providerMode,
+            timestamp,
+            timestamp,
+          ],
+        ),
+      );
+      return (await this.findById(result.insertId)) as AotdSongTaskRecord;
+    } catch (error) {
+      if (isRetryableMysqlError(error)) {
+        throw new Error("数据库连接抖了一下，请稍后再试一次");
+      }
+      throw error;
+    }
   }
 
   async findById(id: number): Promise<AotdSongTaskRecord | null> {
@@ -222,7 +300,9 @@ export class AotdSongStore {
       return this.memoryTasks.get(id) || null;
     }
     await this.ensureSchema();
-    const [rows] = await this.pool.query<AotdSongTaskRow[]>("SELECT * FROM aotd_song_task WHERE id = ? LIMIT 1", [id]);
+    const [rows] = await runMysqlWithRetry(() =>
+      this.pool!.query<AotdSongTaskRow[]>("SELECT * FROM aotd_song_task WHERE id = ? LIMIT 1", [id]),
+    );
     return rows[0] ? toTaskRecord(rows[0]) : null;
   }
 
@@ -241,13 +321,15 @@ export class AotdSongStore {
       return true;
     }
     await this.ensureSchema();
-    const [result] = await this.pool.query<ResultSetHeader>(
-      `
-        UPDATE aotd_song_task
-        SET status = 'processing', updated_at = ?
-        WHERE id = ? AND status = 'pending'
-      `,
-      [nowSql(), id],
+    const [result] = await runMysqlWithRetry(() =>
+      this.pool!.query<ResultSetHeader>(
+        `
+          UPDATE aotd_song_task
+          SET status = 'processing', updated_at = ?
+          WHERE id = ? AND status = 'pending'
+        `,
+        [nowSql(), id],
+      ),
     );
     return result.affectedRows === 1;
   }
@@ -276,32 +358,34 @@ export class AotdSongStore {
     }
     await this.ensureSchema();
     const timestamp = nowSql();
-    await this.pool.query(
-      `
-        UPDATE aotd_song_task
-        SET status = 'completed',
-            provider_mode = ?,
-            song_title = ?,
-            song_summary = ?,
-            song_duration_seconds = ?,
-            song_audio_path = ?,
-            song_voice_sample_path = ?,
-            error_message = NULL,
-            completed_at = ?,
-            updated_at = ?
-        WHERE id = ?
-      `,
-      [
-        params.providerMode,
-        params.songTitle,
-        params.songSummary,
-        params.songDurationSeconds,
-        params.songAudioPath,
-        params.songVoiceSamplePath || null,
-        timestamp,
-        timestamp,
-        id,
-      ],
+    await runMysqlWithRetry(() =>
+      this.pool!.query(
+        `
+          UPDATE aotd_song_task
+          SET status = 'completed',
+              provider_mode = ?,
+              song_title = ?,
+              song_summary = ?,
+              song_duration_seconds = ?,
+              song_audio_path = ?,
+              song_voice_sample_path = ?,
+              error_message = NULL,
+              completed_at = ?,
+              updated_at = ?
+          WHERE id = ?
+        `,
+        [
+          params.providerMode,
+          params.songTitle,
+          params.songSummary,
+          params.songDurationSeconds,
+          params.songAudioPath,
+          params.songVoiceSamplePath || null,
+          timestamp,
+          timestamp,
+          id,
+        ],
+      ),
     );
   }
 
@@ -324,13 +408,15 @@ export class AotdSongStore {
       return;
     }
     await this.ensureSchema();
-    await this.pool.query(
-      `
-        UPDATE aotd_song_task
-        SET status = 'failed', error_message = ?, updated_at = ?
-        WHERE id = ? AND status <> 'completed'
-      `,
-      [errorMessage.slice(0, 1000), nowSql(), id],
+    await runMysqlWithRetry(() =>
+      this.pool!.query(
+        `
+          UPDATE aotd_song_task
+          SET status = 'failed', error_message = ?, updated_at = ?
+          WHERE id = ? AND status <> 'completed'
+        `,
+        [errorMessage.slice(0, 1000), nowSql(), id],
+      ),
     );
   }
 
@@ -349,13 +435,15 @@ export class AotdSongStore {
       return;
     }
     await this.ensureSchema();
-    await this.pool.query(
-      `
-        UPDATE aotd_song_task
-        SET voice_persona_id = ?, updated_at = ?
-        WHERE id = ?
-      `,
-      [voicePersonaId, nowSql(), id],
+    await runMysqlWithRetry(() =>
+      this.pool!.query(
+        `
+          UPDATE aotd_song_task
+          SET voice_persona_id = ?, updated_at = ?
+          WHERE id = ?
+        `,
+        [voicePersonaId, nowSql(), id],
+      ),
     );
   }
 }

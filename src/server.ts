@@ -495,6 +495,23 @@ function isNonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;
 }
 
+function isRetryableMysqlLikeError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message.toUpperCase() : String(error || "").toUpperCase();
+  return (
+    message.includes("ECONNRESET") ||
+    message.includes("ETIMEDOUT") ||
+    message.includes("PROTOCOL_CONNECTION_LOST")
+  );
+}
+
+function toAotdSongGenerateErrorMessage(error: unknown): string {
+  const message = error instanceof Error ? error.message : "Unable to generate aotd song";
+  if (isRetryableMysqlLikeError(error)) {
+    return "数据库连接抖了一下，请稍后再试一次";
+  }
+  return message;
+}
+
 async function handleAotdSongVoicePersonaPrepare(req: HttpRequest, res: HttpResponse) {
   if (req.method !== "POST") {
     sendJson(res, 405, { error: "Method not allowed" });
@@ -634,13 +651,18 @@ async function handleAotdSongGenerate(req: HttpRequest, res: HttpResponse) {
       voicePersonaId,
       providerMode: getAotdSongProviderMode(),
     });
-    await userStateStore.appendEvent(userId, {
+    void userStateStore.appendEvent(userId, {
       type: "aotd_song_generation_requested",
       taskId: task.id,
       titleText,
       playlistTitle,
       trackCount: tracks.length,
       requestFingerprint: crypto.createHash("sha1").update(`${titleText}|${playlistTitle}|${tracks.length}`).digest("hex").slice(0, 12),
+    }).catch((error) => {
+      console.warn("[aotd-song] append event failed", {
+        taskId: task.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
     });
     void processAotdSongTask(task.id);
     sendJson(res, 200, {
@@ -648,7 +670,7 @@ async function handleAotdSongGenerate(req: HttpRequest, res: HttpResponse) {
       task: formatAotdSongTask(task),
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unable to generate aotd song";
+    const message = toAotdSongGenerateErrorMessage(error);
     console.error("[aotd-song] generate failed", error);
     sendJson(res, 500, { error: message });
   }
