@@ -38,7 +38,7 @@ const AOTD_REMINDER_PAGE = "pages/landing/index";
 
 // 部署版本指纹：每次代码改动必须 bump，方便从云托管日志确认跑的是哪个版本
 // 同时启动时打 dist 文件 hash + 文件 mtime + git HEAD，可以一眼看出"是否在跑新代码"
-const DEPLOY_VERSION = "aotd-2026-07-25-r22-aotd-song-duration-guard-v1";
+const DEPLOY_VERSION = "aotd-2026-07-25-r23-aotd-song-callback-shape-v1";
 
 const appEnv = loadEnv();
 const processingAotdSongTasks = new Set<number>();
@@ -686,6 +686,11 @@ async function handleAotdSongCallback(req: HttpRequest, res: HttpResponse, reque
     return;
   }
   const callbackStatus = extractRemoteSongStatus(body);
+  if (callbackStatus === "COMPLETE") {
+    console.warn("[aotd-song] callback complete but no playable song parsed", { taskId: localTaskId });
+    sendJson(res, 200, { ok: true, accepted: true, status: "complete_unparsed" });
+    return;
+  }
   if (callbackStatus === "FAILED" || callbackStatus === "ERROR") {
     const message = extractRemoteSongErrorMessage(body, "真实音乐服务回调失败");
     console.error("[aotd-song] callback marked task failed", { taskId: localTaskId, error: message });

@@ -13,10 +13,12 @@ interface RemoteSongResponse {
   code?: number;
   msg?: string;
   status?: string;
+  callbackType?: string;
   taskId?: string;
   id?: string;
   audioUrl?: string;
   audio_url?: string;
+  source_audio_url?: string;
   voiceSampleUrl?: string;
   voice_sample_url?: string;
   title?: string;
@@ -26,6 +28,21 @@ interface RemoteSongResponse {
   data?: {
     taskId?: string;
     status?: string;
+    callbackType?: string;
+    task_id?: string;
+    data?: Array<{
+      id?: string;
+      audio_url?: string;
+      audioUrl?: string;
+      streamAudioUrl?: string;
+      sourceStreamAudioUrl?: string;
+      source_audio_url?: string;
+      title?: string;
+      tags?: string;
+      prompt?: string;
+      duration?: number;
+      durationSeconds?: number;
+    }>;
     response?: {
       data?: Array<{
         id?: string;
@@ -409,7 +426,12 @@ function extractTaskId(payload: RemoteSongResponse): string {
 
 export function extractRemoteSongStatus(payload: unknown): string {
   const record = payload as RemoteSongResponse;
-  return String(record?.status || record?.data?.status || "").toUpperCase();
+  return String(
+    record?.status ||
+      record?.data?.status ||
+      ("callbackType" in (record?.data || {}) ? (record?.data as { callbackType?: string }).callbackType : "") ||
+      ("callbackType" in record ? (record as { callbackType?: string }).callbackType : ""),
+  ).toUpperCase();
 }
 
 function extractStatus(payload: RemoteSongResponse): string {
@@ -421,6 +443,7 @@ function normalizeGeneratedSong(
   request: GenerateAotdSongParams,
 ): GeneratedAotdSong | null {
   const rawTrack =
+    payload.data?.data?.[0] ||
     (Array.isArray(payload.data?.response?.data) ? payload.data?.response?.data?.[0] : undefined) ||
     (Array.isArray(payload.data?.response?.sunoData) ? payload.data?.response?.sunoData?.[0] : undefined);
   const track: NormalizedRemoteTrack | null = rawTrack
@@ -429,7 +452,8 @@ function normalizeGeneratedSong(
           rawTrack.audioUrl ||
           ("audio_url" in rawTrack ? rawTrack.audio_url || "" : "") ||
           ("streamAudioUrl" in rawTrack ? rawTrack.streamAudioUrl || "" : "") ||
-          ("sourceStreamAudioUrl" in rawTrack ? rawTrack.sourceStreamAudioUrl || "" : ""),
+          ("sourceStreamAudioUrl" in rawTrack ? rawTrack.sourceStreamAudioUrl || "" : "") ||
+          ("source_audio_url" in rawTrack ? rawTrack.source_audio_url || "" : ""),
         title: rawTrack.title,
         tags: rawTrack.tags,
         duration:
@@ -437,7 +461,12 @@ function normalizeGeneratedSong(
           ("duration" in rawTrack ? Number(rawTrack.duration || 0) : 0),
       }
     : null;
-  const audioUrl = payload.audioUrl || payload.audio_url || track?.audioUrl || "";
+  const audioUrl =
+    payload.audioUrl ||
+    payload.audio_url ||
+    payload.source_audio_url ||
+    track?.audioUrl ||
+    "";
   if (!audioUrl) {
     return null;
   }
