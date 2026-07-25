@@ -1,8 +1,8 @@
 const { STORAGE_KEYS, getStorage } = require("../../utils/storage");
 const { requestAotdSongGeneration, trackUserEvent } = require("../../utils/api");
 
-const MAX_RECORD_DURATION_MS = 18000;
-const MIN_RECORD_DURATION_MS = 15000;
+const MAX_RECORD_DURATION_MS = 12000;
+const MIN_RECORD_DURATION_MS = 8000;
 
 function stripPlaylistPrefix(rawTitle) {
   return String(rawTitle || "").replace(/^AOTD\s*\|\s*/i, "").trim() || "今晚的陪伴";
@@ -46,7 +46,7 @@ Page({
     voiceReady: false,
     voiceTempFilePath: "",
     voiceDurationMs: 0,
-    voiceStatusText: "还没有录音，尽量自然说满 15 秒，让系统更好拟合你的音色。",
+    voiceStatusText: "还没有录音，连续说两三句，让这首歌更像你的声音。",
     generating: false,
     generationText: "正在为你制作...",
     songResult: null,
@@ -106,7 +106,7 @@ Page({
       this.setData({
         recording: true,
         recordDurationText: "0:00",
-        voiceStatusText: "正在录音，连续多说几句，像聊天一样自然就好。",
+        voiceStatusText: "正在录音，连续说两三句，语气自然一点就好。",
       });
     });
 
@@ -228,7 +228,7 @@ Page({
       voiceTempFilePath: "",
       voiceDurationMs: 0,
       recordDurationText: "0:00",
-      voiceStatusText: "已清空，重新录一遍吧，尽量说满 15 秒。",
+      voiceStatusText: "已清空，重新录一遍吧，尽量说满 8 秒。",
       songResult: null,
       songMetaText: "",
       generationNote: "",
@@ -294,23 +294,23 @@ Page({
     }
     if (this.data.voiceDurationMs < MIN_RECORD_DURATION_MS) {
       wx.showToast({
-        title: "语音太短了，至少录 15 秒",
+        title: "语音太短了，至少录 8 秒",
         icon: "none",
       });
       return;
     }
     this.setData({
       generating: true,
-      generationText: "正在整理你的录音、歌单和专属音色...",
+      generationText: "正在整理你的录音和歌单气质...",
     });
 
     try {
       this.setData({
-        generationText: "正在上传录音并生成你的专属音色...",
+        generationText: "正在上传录音...",
       });
       const uploadedVoice = await this.uploadVoiceFile(this.data.voiceTempFilePath);
       this.setData({
-        generationText: "正在生成你的专属音色和 AOTD 小歌...",
+        generationText: "正在生成专属 AOTD 小歌...",
       });
       const payload = await requestAotdSongGeneration({
         titleText,

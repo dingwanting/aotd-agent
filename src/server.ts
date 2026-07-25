@@ -39,7 +39,7 @@ const AOTD_REMINDER_PAGE = "pages/landing/index";
 
 // 部署版本指纹：每次代码改动必须 bump，方便从云托管日志确认跑的是哪个版本
 // 同时启动时打 dist 文件 hash + 文件 mtime + git HEAD，可以一眼看出"是否在跑新代码"
-const DEPLOY_VERSION = "aotd-2026-07-25-r25-aotd-song-file-upload-v1";
+const DEPLOY_VERSION = "aotd-2026-07-25-r26-aotd-song-stable-flow-v1";
 
 const appEnv = loadEnv();
 const processingAotdSongTasks = new Set<number>();
@@ -416,9 +416,7 @@ function formatAotdSongTask(record: AotdSongTaskRecord) {
       note:
         record.providerMode === "demo"
           ? "当前为制作我的AOTD MVP，会先生成一段专属 demo 音轨；后续接入真实音乐模型后可直接替换。"
-          : record.voicePersonaId
-            ? "已优先使用你的专属音色，并综合 5 首参考歌的试听缓存与风格标签。"
-            : "已接入真实音乐生成能力，并会综合 5 首参考歌的试听缓存与风格标签。",
+          : "已接入真实音乐生成能力，并会综合 5 首参考歌的试听缓存与风格标签。",
     },
   };
 }
@@ -437,35 +435,6 @@ function buildAotdSongCallbackUrl(taskId: number): string | undefined {
   }
 }
 
-async function ensureHiddenVoicePersona(task: AotdSongTaskRecord): Promise<string> {
-  if (task.voicePersonaId) {
-    return task.voicePersonaId;
-  }
-  try {
-    const prepared = await prepareSunoVoicePersona({
-      titleText: task.titleText,
-      voiceBase64: task.voiceBase64,
-      voiceFormat: task.voiceFormat,
-      voiceDurationMs: task.voiceDurationMs,
-    });
-    const finalized = await finalizeSunoVoicePersona({
-      validateTaskId: prepared.taskId,
-      titleText: task.titleText,
-      verifyVoiceBase64: task.voiceBase64,
-      verifyVoiceFormat: task.voiceFormat,
-    });
-    if (!finalized.voiceId || !finalized.isAvailable) {
-      throw new Error("voice persona unavailable");
-    }
-    await aotdSongStore.updateVoicePersonaId(task.id, finalized.voiceId);
-    return finalized.voiceId;
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.error("[aotd-song] hidden voice persona failed", { taskId: task.id, error: message });
-    throw new Error("这次没成功拟合你的专属音色，请重录 15 秒左右自然说话再试");
-  }
-}
-
 async function processAotdSongTask(taskId: number): Promise<void> {
   if (!taskId || processingAotdSongTasks.has(taskId)) {
     return;
@@ -480,14 +449,13 @@ async function processAotdSongTask(taskId: number): Promise<void> {
     if (!task) {
       return;
     }
-    const voicePersonaId = getAotdSongProviderMode() === "remote" ? await ensureHiddenVoicePersona(task) : task.voicePersonaId || "";
     const generated = await generateAotdSong({
       titleText: task.titleText,
       playlistTitle: task.playlistTitle,
       tracks: parseAotdSongTracks(task.tracksJson),
       voiceBase64: task.voiceBase64,
       voiceFormat: task.voiceFormat,
-      voicePersonaId,
+      voicePersonaId: task.voicePersonaId,
       callbackUrl: buildAotdSongCallbackUrl(task.id),
     });
     await aotdSongStore.markCompleted(taskId, {
