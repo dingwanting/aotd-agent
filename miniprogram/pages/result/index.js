@@ -31,6 +31,19 @@ const POSTER_QRCODE_PATH = "/assets/poster/aotd-mini-qrcode.png";
 const POSTER_TEMPLATE_WIDTH = 1020;
 const POSTER_TEMPLATE_HEIGHT = 1541;
 const EVENING_REMINDER_TEMPLATE_ID = "juig4kKFh82FrsxB-gjvpIgNqn3fZgCEB2duDNCuLjY";
+const REPORT_ENTRY_EMOJIS = ["✨", "💗", "🎧", "🌙", "🫧", "🎼"];
+
+function formatReminderDateText(remindAt) {
+  if (!remindAt) {
+    return "明天";
+  }
+  return `${remindAt.getMonth() + 1}月${remindAt.getDate()}日`;
+}
+
+function pickReportEntryCtaText() {
+  const emoji = REPORT_ENTRY_EMOJIS[Math.floor(Math.random() * REPORT_ENTRY_EMOJIS.length)] || "✨";
+  return `去生成 ${emoji}`;
+}
 
 function normalizeCoverTitle(rawTitle) {
   const title = String(rawTitle || "").trim();
@@ -417,9 +430,12 @@ Page({
     posterReady: false,
     posterImagePath: "",
     showPosterPreview: false,
+    reportEntryCtaText: pickReportEntryCtaText(),
     reminderEnabled: false,
     reminderLoading: false,
-    reminderTimeText: "明天 18:00"
+    reminderLoadingText: "",
+    reminderTimeText: "明天 18:00",
+    reminderDateText: "明天"
   },
 
   onShow() {
@@ -537,9 +553,58 @@ Page({
       this.setData({
         reminderEnabled: Boolean(payload && payload.subscribed),
         reminderTimeText: remindAt ? `${remindAt.getMonth() + 1}月${remindAt.getDate()}日 18:00` : "明天 18:00",
+        reminderDateText: formatReminderDateText(remindAt),
       });
     } catch (error) {
       console.warn("[aotd] reminder status failed:", error && error.message ? error.message : error);
+    }
+  },
+
+  async ensureReminderSessionReady() {
+    const cachedUserId = getStorage(STORAGE_KEYS.userId, "");
+    const cachedIsAnonymous = getStorage(STORAGE_KEYS.isAnonymous, true);
+    if (cachedUserId && !cachedIsAnonymous) {
+      return true;
+    }
+
+    const app = typeof getApp === "function" ? getApp() : null;
+    if (app && typeof app.bootstrapUser === "function") {
+      await app.bootstrapUser();
+    }
+
+    const nextUserId = getStorage(STORAGE_KEYS.userId, "");
+    const nextIsAnonymous = getStorage(STORAGE_KEYS.isAnonymous, true);
+    return Boolean(nextUserId && !nextIsAnonymous);
+  },
+
+  async submitEveningReminderWithRetry() {
+    const loginReady = await this.ensureReminderSessionReady();
+    if (!loginReady) {
+      throw new Error("请先完成微信登录，再开启继续陪伴");
+    }
+
+    try {
+      return await Promise.race([
+        createEveningReminder(),
+        wait(10000).then(() => {
+          throw new Error("开启继续陪伴超时，请再试一次");
+        }),
+      ]);
+    } catch (error) {
+      const message = error && error.message ? error.message : String(error);
+      if (!/Current account has not completed wx login/i.test(message)) {
+        throw error;
+      }
+      const retryReady = await this.ensureReminderSessionReady();
+      if (!retryReady) {
+        throw new Error("请先完成微信登录，再开启继续陪伴");
+      }
+      return Promise.race([
+        createEveningReminder(),
+        wait(10000).then(() => {
+          throw new Error("开启继续陪伴超时，请再试一次");
+        }),
+      ]);
     }
   },
 
@@ -549,6 +614,7 @@ Page({
     }
     this.setData({
       reminderLoading: true,
+      reminderLoadingText: "请在弹窗里点允许",
     });
     try {
       const subscribeResult = await withPromise(wx.requestSubscribeMessage, {
@@ -558,12 +624,17 @@ Page({
       if (status !== "accept") {
         throw new Error(status === "reject" ? "你刚刚没有打开提醒" : "当前无法开启提醒");
       }
-      const payload = await createEveningReminder();
+      this.setData({
+        reminderLoadingText: "正在开启继续陪伴",
+      });
+      const payload = await this.submitEveningReminderWithRetry();
       const remindAt = payload && payload.reminder && payload.reminder.remindAt ? new Date(payload.reminder.remindAt) : null;
       this.setData({
         reminderEnabled: true,
         reminderLoading: false,
+        reminderLoadingText: "",
         reminderTimeText: remindAt ? `${remindAt.getMonth() + 1}月${remindAt.getDate()}日 18:00` : "明天 18:00",
+        reminderDateText: formatReminderDateText(remindAt),
       });
       trackUserEvent({
         type: "evening_reminder_accept",
@@ -576,8 +647,13 @@ Page({
     } catch (error) {
       this.setData({
         reminderLoading: false,
+        reminderLoadingText: "",
       });
-      const message = error && error.message ? error.message : "开启提醒失败";
+      const rawMessage = error && error.message ? error.message : "开启提醒失败";
+      const message =
+        rawMessage === "Current account has not completed wx login"
+          ? "请先完成微信登录，再开启继续陪伴"
+          : rawMessage;
       wx.showToast({
         title: message,
         icon: "none",
@@ -587,6 +663,12 @@ Page({
 
   handleRetry() {
     this.loadResult();
+  },
+
+  handleOpenMakeAotd() {
+    wx.navigateTo({
+      url: "/pages/make-aotd/index",
+    });
   },
 
   noop() {},

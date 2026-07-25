@@ -80,12 +80,35 @@
       </view>
     </view>
 
-    <view class="actions">
-      <button class="action-primary" loading="{{posterGenerating}}" disabled="{{posterGenerating}}" bindtap="handleGeneratePoster">生成 AOTD 报告</button>
-      <button class="action-secondary reminder-button {{reminderEnabled ? 'reminder-button--active' : ''}}" loading="{{reminderLoading}}" disabled="{{reminderLoading || reminderEnabled}}" bindtap="handleSubscribeReminder">
-        {{reminderEnabled ? reminderTimeText + ' 会提醒你' : '18:00 提醒我'}}
-      </button>
-      <button class="action-secondary" bindtap="handleRestart">重新回答</button>
+    <view class="result-primary-action">
+      <view class="report-entry card {{posterGenerating ? 'report-entry--disabled' : ''}}" bindtap="handleGeneratePoster">
+        <view class="report-entry__copy">
+          <text class="report-entry__eyebrow">AOTD Report</text>
+          <text class="report-entry__title">{{posterGenerating ? '正在生成 AOTD 报告' : '生成 AOTD 报告'}}</text>
+          <text class="report-entry__desc">把今晚歌单整理成一张陪伴报告~</text>
+        </view>
+        <view class="report-entry__cta">{{posterGenerating ? '请稍候' : reportEntryCtaText}}</view>
+      </view>
+    </view>
+    <view class="result-secondary-actions">
+      <view class="result-action-pill result-action-pill--accent reminder-button {{reminderEnabled ? 'reminder-button--active' : ''}}" bindtap="handleSubscribeReminder">
+        <view class="reminder-button__content">
+          <text class="reminder-button__label">{{reminderEnabled ? '继续陪伴已开启' : (reminderLoading ? reminderLoadingText : '继续陪伴')}}</text>
+          <text wx:if="{{reminderEnabled}}" class="reminder-button__meta">{{reminderDateText}}会提醒你</text>
+        </view>
+      </view>
+      <view class="result-action-pill result-action-pill--quiet" bindtap="handleRestart">重新回答</view>
+    </view>
+    <view wx:if="{{!reminderEnabled}}" class="result-action-hint muted">
+      {{reminderEnabled ? reminderTimeText + ' 会提醒你回来' : '开启后会在明天 18:00 提醒你回来'}}
+    </view>
+    <view class="song-lab-entry card" bindtap="handleOpenMakeAotd">
+      <view class="song-lab-entry__copy">
+        <text class="song-lab-entry__eyebrow">My AOTD</text>
+        <text class="song-lab-entry__title">制作我的 AOTD</text>
+        <text class="song-lab-entry__desc">录下这份标题文案，把今晚 5 首歌做成你的专属小歌</text>
+      </view>
+      <view class="song-lab-entry__cta">去试试</view>
     </view>
 
     <view wx:if="{{showPosterPreview}}" class="poster-preview-mask" catchtouchmove="noop">

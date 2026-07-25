@@ -1,0 +1,117 @@
+<view class="page-shell">
+  <view wx:if="{{loading}}" class="state card">
+    <text class="eyebrow">Make My AOTD</text>
+    <view class="state-title">正在加载你的今晚歌单...</view>
+    <view class="muted">我们会把这次歌单的情绪和你的标题文案，一起做成一首专属小歌。</view>
+  </view>
+
+  <view wx:elif="{{errorMessage}}" class="state card">
+    <text class="eyebrow">暂时失败</text>
+    <view class="state-title">{{errorMessage}}</view>
+    <view class="actions">
+      <button class="action-primary" bindtap="handleBackToResult">回到结果页</button>
+    </view>
+  </view>
+
+  <block wx:else>
+    <view class="make-card card">
+      <text class="eyebrow">AOTD Song Lab</text>
+      <view class="make-title">制作我的 AOTD</view>
+      <view class="make-desc">以这次 5 首歌的氛围为基调，把你读出的主标题做成一首专属小歌。</view>
+      <view class="make-note">现在已经支持先生成你的专属音色，再把这份音色优先带进出歌链路里。</view>
+    </view>
+
+    <view class="make-card card">
+      <text class="eyebrow">Title</text>
+      <view class="section-title">读出这句主标题</view>
+      <input
+        class="title-input"
+        value="{{titleText}}"
+        maxlength="24"
+        placeholder="输入你想读出的主标题"
+        bindinput="handleTitleInput"
+      />
+    </view>
+
+    <view class="make-card card">
+      <text class="eyebrow">Source Tracks</text>
+      <view class="section-title">这次会参考的 5 首歌</view>
+      <view class="source-tracks">
+        <view wx:for="{{result.playlist.tracks}}" wx:key="rank" class="source-track">
+          <text class="source-track__rank">#{{item.rank}}</text>
+          <view class="source-track__copy">
+            <view class="source-track__title">{{item.song.title}}</view>
+            <view class="source-track__artist muted">{{item.song.artist}}</view>
+          </view>
+        </view>
+      </view>
+    </view>
+
+    <view class="make-card card">
+      <text class="eyebrow">Voice</text>
+      <view class="section-title">先录一段 5-10 秒标题语音</view>
+      <view class="voice-status {{recording ? 'voice-status--recording' : ''}}">
+        {{recording && recordingTarget === 'source' ? ('正在录音 ' + recordDurationText) : voiceStatusText}}
+      </view>
+      <view class="voice-actions">
+        <button wx:if="{{!recording}}" class="action-primary" bindtap="handleStartRecord">开始录音</button>
+        <button wx:if="{{recording}}" class="action-primary" bindtap="handleStopRecord">结束录音</button>
+        <button class="action-secondary" disabled="{{!voiceReady}}" bindtap="handleClearVoice">重录一遍</button>
+      </view>
+    </view>
+
+    <view class="make-card card">
+      <text class="eyebrow">Voice Persona</text>
+      <view class="section-title">先生成一条跟读短句</view>
+      <view class="generate-tip">系统会先根据你的声音准备一条短句，你照着读一遍后，就能换出专属 voiceId。</view>
+      <button class="action-primary {{voicePersonaPreparing ? 'action-primary--disabled' : ''}}" loading="{{voicePersonaPreparing}}" disabled="{{voicePersonaPreparing || !voiceReady}}" bindtap="handlePrepareVoicePersona">
+        {{voicePersonaPreparing ? voicePersonaGenerateText : voicePersonaGenerateText}}
+      </button>
+      <view wx:if="{{voicePersonaValidateText}}" class="voice-validate-box">
+        <view class="voice-validate-label">请照着这句读：</view>
+        <view class="voice-validate-text">{{voicePersonaValidateText}}</view>
+      </view>
+    </view>
+
+    <view wx:if="{{voicePersonaValidateText}}" class="make-card card">
+      <text class="eyebrow">Verify</text>
+      <view class="section-title">跟读短句，生成你的音色</view>
+      <view class="voice-status {{recording ? 'voice-status--recording' : ''}}">
+        {{recording && recordingTarget === 'verify' ? ('正在录音 ' + verifyRecordDurationText) : verifyVoiceStatusText}}
+      </view>
+      <view class="voice-actions">
+        <button wx:if="{{!recording}}" class="action-primary" bindtap="handleStartVerifyRecord">开始跟读录音</button>
+        <button wx:if="{{recording}}" class="action-primary" bindtap="handleStopRecord">结束跟读录音</button>
+        <button class="action-secondary" disabled="{{!verifyVoiceReady}}" bindtap="handleClearVerifyVoice">重录短句</button>
+      </view>
+      <button class="action-primary {{verifyVoiceGenerating ? 'action-primary--disabled' : ''}}" loading="{{verifyVoiceGenerating}}" disabled="{{verifyVoiceGenerating || !verifyVoiceReady}}" bindtap="handleGenerateVoicePersona">
+        {{verifyVoiceGenerating ? '正在生成你的音色...' : (voicePersonaReady ? '重新生成我的音色' : '生成我的专属音色')}}
+      </button>
+      <view wx:if="{{voicePersonaReady}}" class="voice-persona-ready">你的专属音色已准备好，接下来出歌会优先使用它。</view>
+    </view>
+
+    <view class="make-card card">
+      <text class="eyebrow">Generate</text>
+      <view class="section-title">把它做成一首小歌</view>
+      <view class="generate-tip">生成后你可以直接试听，也可以把音频保存到本地文件。音色准备好后，会优先使用你的 voice persona。</view>
+      <button class="action-primary {{generating ? 'action-primary--disabled' : ''}}" loading="{{generating}}" disabled="{{generating || !voiceReady}}" bindtap="handleGenerateSong">
+        {{generating ? generationText : '开始制作我的 AOTD'}}
+      </button>
+    </view>
+
+    <view wx:if="{{songResult}}" class="make-card card">
+      <text class="eyebrow">Result</text>
+      <view class="section-title">{{songResult.title || '我的 AOTD 小歌'}}</view>
+      <view class="result-desc">{{songResult.summary}}</view>
+      <view class="result-meta">{{songMetaText}}</view>
+      <view class="result-actions">
+        <button class="action-primary" bindtap="handleToggleSongPlay">{{playingSong ? '暂停小歌' : '播放小歌'}}</button>
+        <button class="action-secondary" bindtap="handleSaveSong">{{savedSongPath ? '已保存到本地' : '保存音频到本地'}}</button>
+      </view>
+      <view wx:if="{{songResult.voiceSampleUrl}}" class="voice-preview" bindtap="handleToggleVoiceSample">
+        {{playingVoiceSample ? '暂停标题录音' : '试听标题录音'}}
+      </view>
+      <view class="result-note muted">{{generationNote}}</view>
+    </view>
+  </block>
+</view>

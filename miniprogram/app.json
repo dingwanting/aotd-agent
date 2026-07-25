@@ -3,6 +3,7 @@
     "pages/landing/index",
     "pages/question/index",
     "pages/result/index",
+    "pages/make-aotd/index",
     "pages/full-player/index",
     "pages/player-webview/index"
   ],
@@ -16,6 +17,9 @@
   "permission": {
     "scope.writePhotosAlbum": {
       "desc": "用于保存 AOTD 报告图到你的相册"
+    },
+    "scope.record": {
+      "desc": "用于录下你的标题文案，生成专属 AOTD 歌曲"
     }
   },
   "style": "v2",

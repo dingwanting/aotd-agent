@@ -1,0 +1,161 @@
+.make-card,
+.state {
+  margin-top: 18rpx;
+  padding: 30rpx;
+}
+
+.state-title,
+.make-title,
+.section-title {
+  color: #4b3740;
+  font-weight: 600;
+}
+
+.state-title,
+.make-title {
+  font-size: 42rpx;
+  line-height: 1.28;
+}
+
+.section-title {
+  font-size: 32rpx;
+  line-height: 1.35;
+}
+
+.make-desc,
+.make-note,
+.generate-tip,
+.result-desc,
+.result-meta,
+.result-note {
+  margin-top: 14rpx;
+  font-size: 25rpx;
+  line-height: 1.6;
+}
+
+.make-note {
+  padding: 16rpx 18rpx;
+  border-radius: 20rpx;
+  background: rgba(255, 245, 249, 0.9);
+  color: #8b5a70;
+}
+
+.title-input {
+  margin-top: 18rpx;
+  min-height: 96rpx;
+  padding: 0 24rpx;
+  border-radius: 24rpx;
+  background: rgba(255, 249, 252, 0.98);
+  border: 1rpx solid rgba(221, 190, 201, 0.5);
+  font-size: 30rpx;
+  color: #4f3c45;
+  box-sizing: border-box;
+}
+
+.source-tracks {
+  margin-top: 18rpx;
+  display: flex;
+  flex-direction: column;
+  gap: 14rpx;
+}
+
+.source-track {
+  display: flex;
+  align-items: flex-start;
+  gap: 16rpx;
+  padding: 18rpx 20rpx;
+  border-radius: 22rpx;
+  background: rgba(255, 249, 252, 0.94);
+}
+
+.source-track__rank {
+  width: 52rpx;
+  height: 52rpx;
+  border-radius: 999rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 238, 244, 0.98);
+  color: #c86f8f;
+  font-size: 22rpx;
+}
+
+.source-track__copy {
+  flex: 1;
+  min-width: 0;
+}
+
+.source-track__title {
+  font-size: 28rpx;
+  line-height: 1.35;
+  font-weight: 600;
+  color: #513d47;
+}
+
+.source-track__artist {
+  margin-top: 6rpx;
+  font-size: 24rpx;
+}
+
+.voice-status {
+  margin-top: 18rpx;
+  padding: 22rpx 24rpx;
+  border-radius: 24rpx;
+  background: rgba(255, 246, 249, 0.96);
+  color: #6c4b5b;
+  font-size: 26rpx;
+  line-height: 1.6;
+}
+
+.voice-status--recording {
+  background: rgba(255, 235, 241, 0.98);
+  color: #b15b7f;
+}
+
+.voice-actions,
+.result-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 16rpx;
+  margin-top: 18rpx;
+}
+
+.voice-preview {
+  margin-top: 18rpx;
+  padding: 20rpx 22rpx;
+  border-radius: 22rpx;
+  background: rgba(255, 248, 251, 0.98);
+  color: #9d5974;
+  font-size: 26rpx;
+  text-align: center;
+}
+
+.voice-validate-box {
+  margin-top: 18rpx;
+  padding: 22rpx 24rpx;
+  border-radius: 24rpx;
+  background: rgba(255, 248, 251, 0.98);
+  border: 1rpx solid rgba(221, 190, 201, 0.45);
+}
+
+.voice-validate-label {
+  font-size: 22rpx;
+  color: #a06a81;
+}
+
+.voice-validate-text {
+  margin-top: 10rpx;
+  font-size: 28rpx;
+  line-height: 1.65;
+  color: #513d47;
+}
+
+.voice-persona-ready {
+  margin-top: 18rpx;
+  padding: 18rpx 20rpx;
+  border-radius: 22rpx;
+  background: rgba(245, 252, 247, 0.98);
+  color: #4f7a5b;
+  font-size: 25rpx;
+  line-height: 1.6;
+}

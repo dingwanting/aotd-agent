@@ -1,6 +1,7 @@
 import { createServer } from "node:http";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { Readable } from "node:stream";
+import crypto from "node:crypto";
 import fsSync from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -9,10 +10,13 @@ import { fileURLToPath } from "node:url";
 import { AotdAgent } from "./agents/aotd-agent.js";
 import type { AotdQuestionnaireAnswers } from "./domain/aotd/types.js";
 import { resolveNeteaseAudio, resolveNeteaseTrackUrl } from "./integrations/netease.js";
+import { generateAotdSong, getAotdSongProviderMode } from "./integrations/aotd-song-provider.js";
+import { finalizeSunoVoicePersona, prepareSunoVoicePersona } from "./integrations/suno-voice-provider.js";
 import { sendMiniProgramSubscribeMessage } from "./integrations/wx-subscribe.js";
 import { loadEnv } from "./config/env.js";
 import { exchangeWxCodeForOpenId } from "./auth/wx-login.js";
 import { userStore, type UserRecord } from "./auth/user-store.js";
+import { aotdSongStore, type AotdSongTaskRecord } from "./persistence/aotd-song-store.js";
 import { reminderStore } from "./persistence/reminder-store.js";
 import { userStateStore, type QuestionDeckIds, type UserProfileRecord } from "./persistence/user-state-store.js";
 
@@ -28,9 +32,10 @@ const AOTD_REMINDER_PAGE = "pages/landing/index";
 
 // 部署版本指纹：每次代码改动必须 bump，方便从云托管日志确认跑的是哪个版本
 // 同时启动时打 dist 文件 hash + 文件 mtime + git HEAD，可以一眼看出"是否在跑新代码"
-const DEPLOY_VERSION = "aotd-2026-07-23-r13-recommendation-retry-v1";
+const DEPLOY_VERSION = "aotd-2026-07-25-r17-aotd-song-voice-persona-v1";
 
 const appEnv = loadEnv();
+const processingAotdSongTasks = new Set<number>();
 
 function shortHash(input: string): string {
   let hash = 5381;
@@ -71,6 +76,9 @@ const contentTypes: Record<string, string> = {
   ".css": "text/css; charset=utf-8",
   ".js": "application/javascript; charset=utf-8",
   ".json": "application/json; charset=utf-8",
+  ".wav": "audio/wav",
+  ".mp3": "audio/mpeg",
+  ".m4a": "audio/mp4",
   ".svg": "image/svg+xml",
 };
 
@@ -323,6 +331,301 @@ async function handleReminderDispatch(req: HttpRequest, res: HttpResponse) {
     processed: results.length,
     results,
   });
+}
+
+interface AotdSongPayloadTrack {
+  title: string;
+  artist: string;
+}
+
+function parseAotdSongTracks(rawTracks: string): AotdSongPayloadTrack[] {
+  try {
+    const parsed = JSON.parse(rawTracks);
+    return Array.isArray(parsed) ? parsed.filter(isAotdSongTrack).slice(0, 5) : [];
+  } catch {
+    return [];
+  }
+}
+
+function formatAotdSongTask(record: AotdSongTaskRecord) {
+  return {
+    id: record.id,
+    status: record.status,
+    titleText: record.titleText,
+    playlistTitle: record.playlistTitle,
+    providerMode: record.providerMode,
+    createdAt: record.createdAt,
+    updatedAt: record.updatedAt,
+    completedAt: record.completedAt,
+    errorMessage: record.errorMessage,
+    song:
+      record.status === "completed" && record.songAudioPath
+        ? {
+            title: record.songTitle || record.titleText || "我的 AOTD 小歌",
+            summary: record.songSummary || "",
+            durationSeconds: record.songDurationSeconds || 0,
+            audioPath: record.songAudioPath,
+            voiceSamplePath: record.songVoiceSamplePath,
+            mode: record.providerMode,
+          }
+        : null,
+    meta: {
+      mode: record.providerMode,
+      providerReady: record.providerMode !== "demo",
+      note:
+        record.providerMode === "demo"
+          ? "当前为制作我的AOTD MVP，会先生成一段专属 demo 音轨；后续接入真实音乐模型后可直接替换。"
+          : "已接入真实音乐生成能力。",
+    },
+  };
+}
+
+async function processAotdSongTask(taskId: number): Promise<void> {
+  if (!taskId || processingAotdSongTasks.has(taskId)) {
+    return;
+  }
+  processingAotdSongTasks.add(taskId);
+  try {
+    const claimed = await aotdSongStore.claimTask(taskId);
+    if (!claimed) {
+      return;
+    }
+    const task = await aotdSongStore.findById(taskId);
+    if (!task) {
+      return;
+    }
+    const generated = await generateAotdSong({
+      titleText: task.titleText,
+      playlistTitle: task.playlistTitle,
+      tracks: parseAotdSongTracks(task.tracksJson),
+      voiceBase64: task.voiceBase64,
+      voiceFormat: task.voiceFormat,
+      voicePersonaId: task.voicePersonaId,
+    });
+    await aotdSongStore.markCompleted(taskId, {
+      providerMode: generated.provider,
+      songTitle: generated.title,
+      songSummary: generated.summary,
+      songDurationSeconds: generated.durationSeconds,
+      songAudioPath: generated.audioPath,
+      songVoiceSamplePath: generated.voiceSamplePath,
+    });
+    await userStateStore.appendEvent(task.userId, {
+      type: "aotd_song_generated",
+      taskId,
+      titleText: task.titleText,
+      playlistTitle: task.playlistTitle,
+      trackCount: parseAotdSongTracks(task.tracksJson).length,
+      mode: generated.provider,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unable to generate aotd song";
+    console.error("[aotd-song] task failed", { taskId, error: message });
+    await aotdSongStore.markFailed(taskId, message);
+  } finally {
+    processingAotdSongTasks.delete(taskId);
+  }
+}
+
+function isAotdSongTrack(value: unknown): value is AotdSongPayloadTrack {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const payload = value as Record<string, unknown>;
+  return typeof payload.title === "string" && typeof payload.artist === "string";
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+async function handleAotdSongVoicePersonaPrepare(req: HttpRequest, res: HttpResponse) {
+  if (req.method !== "POST") {
+    sendJson(res, 405, { error: "Method not allowed" });
+    return;
+  }
+  const userId = readUserIdFromRequest(req);
+  if (!userId) {
+    sendJson(res, 401, { error: "Missing user session" });
+    return;
+  }
+  const body = await readJsonBody(req);
+  if (!body || typeof body !== "object") {
+    sendJson(res, 400, { error: "Invalid JSON body" });
+    return;
+  }
+  const payload = body as Record<string, unknown>;
+  const titleText = isNonEmptyString(payload.titleText) ? payload.titleText.trim() : "我的 AOTD";
+  const voiceBase64 = isNonEmptyString(payload.voiceBase64) ? payload.voiceBase64.trim() : "";
+  const voiceFormat = isNonEmptyString(payload.voiceFormat) ? payload.voiceFormat.trim().toLowerCase() : "mp3";
+  const voiceDurationMs = typeof payload.voiceDurationMs === "number" ? payload.voiceDurationMs : 0;
+  if (!voiceBase64) {
+    sendJson(res, 400, { error: "Missing voice sample" });
+    return;
+  }
+  try {
+    const result = await prepareSunoVoicePersona({
+      titleText,
+      voiceBase64,
+      voiceFormat,
+      voiceDurationMs,
+    });
+    sendJson(res, 200, {
+      ok: true,
+      voicePersona: result,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "生成跟读短句失败";
+    console.error("[aotd-song] voice persona prepare failed", { userId, error: message });
+    sendJson(res, 500, { error: message });
+  }
+}
+
+async function handleAotdSongVoicePersonaConfirm(req: HttpRequest, res: HttpResponse) {
+  if (req.method !== "POST") {
+    sendJson(res, 405, { error: "Method not allowed" });
+    return;
+  }
+  const userId = readUserIdFromRequest(req);
+  if (!userId) {
+    sendJson(res, 401, { error: "Missing user session" });
+    return;
+  }
+  const body = await readJsonBody(req);
+  if (!body || typeof body !== "object") {
+    sendJson(res, 400, { error: "Invalid JSON body" });
+    return;
+  }
+  const payload = body as Record<string, unknown>;
+  const validateTaskId = isNonEmptyString(payload.validateTaskId) ? payload.validateTaskId.trim() : "";
+  const titleText = isNonEmptyString(payload.titleText) ? payload.titleText.trim() : "我的 AOTD";
+  const verifyVoiceBase64 = isNonEmptyString(payload.verifyVoiceBase64) ? payload.verifyVoiceBase64.trim() : "";
+  const verifyVoiceFormat = isNonEmptyString(payload.verifyVoiceFormat) ? payload.verifyVoiceFormat.trim().toLowerCase() : "mp3";
+  if (!validateTaskId) {
+    sendJson(res, 400, { error: "Missing validateTaskId" });
+    return;
+  }
+  if (!verifyVoiceBase64) {
+    sendJson(res, 400, { error: "Missing verify voice sample" });
+    return;
+  }
+  try {
+    const result = await finalizeSunoVoicePersona({
+      validateTaskId,
+      titleText,
+      verifyVoiceBase64,
+      verifyVoiceFormat,
+    });
+    sendJson(res, 200, {
+      ok: true,
+      voicePersona: result,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "生成音色失败";
+    console.error("[aotd-song] voice persona confirm failed", { userId, error: message });
+    sendJson(res, 500, { error: message });
+  }
+}
+
+async function handleAotdSongGenerate(req: HttpRequest, res: HttpResponse) {
+  if (req.method !== "POST") {
+    sendJson(res, 405, { error: "Method not allowed" });
+    return;
+  }
+
+  const userId = readUserIdFromRequest(req);
+  if (!userId) {
+    sendJson(res, 401, { error: "Missing user session" });
+    return;
+  }
+
+  const body = await readJsonBody(req);
+  if (!body || typeof body !== "object") {
+    sendJson(res, 400, { error: "Invalid JSON body" });
+    return;
+  }
+
+  const payload = body as Record<string, unknown>;
+  const titleText = typeof payload.titleText === "string" ? payload.titleText.trim() : "";
+  const playlistTitle = typeof payload.playlistTitle === "string" ? payload.playlistTitle.trim() : "";
+  const voiceBase64 = typeof payload.voiceBase64 === "string" ? payload.voiceBase64.trim() : "";
+  const voiceFormat = typeof payload.voiceFormat === "string" ? payload.voiceFormat.trim().toLowerCase() : "mp3";
+  const voicePersonaId = typeof payload.voicePersonaId === "string" ? payload.voicePersonaId.trim() : "";
+  const tracks = Array.isArray(payload.tracks) ? payload.tracks.filter(isAotdSongTrack).slice(0, 5) : [];
+
+  if (!titleText) {
+    sendJson(res, 400, { error: "Missing titleText" });
+    return;
+  }
+  if (!voiceBase64) {
+    sendJson(res, 400, { error: "Missing voice sample" });
+    return;
+  }
+
+  try {
+    const task = await aotdSongStore.createTask({
+      userId,
+      titleText,
+      playlistTitle,
+      tracksJson: JSON.stringify(tracks),
+      voiceBase64,
+      voiceFormat,
+      voicePersonaId,
+      providerMode: getAotdSongProviderMode(),
+    });
+    await userStateStore.appendEvent(userId, {
+      type: "aotd_song_generation_requested",
+      taskId: task.id,
+      titleText,
+      playlistTitle,
+      trackCount: tracks.length,
+      requestFingerprint: crypto.createHash("sha1").update(`${titleText}|${playlistTitle}|${tracks.length}`).digest("hex").slice(0, 12),
+    });
+    void processAotdSongTask(task.id);
+    sendJson(res, 200, {
+      ok: true,
+      task: formatAotdSongTask(task),
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unable to generate aotd song";
+    console.error("[aotd-song] generate failed", error);
+    sendJson(res, 500, { error: message });
+  }
+}
+
+async function handleAotdSongTaskStatus(req: HttpRequest, res: HttpResponse, taskId: number) {
+  if (req.method !== "GET") {
+    sendJson(res, 405, { error: "Method not allowed" });
+    return;
+  }
+  const userId = readUserIdFromRequest(req);
+  if (!userId) {
+    sendJson(res, 401, { error: "Missing user session" });
+    return;
+  }
+  const task = await aotdSongStore.findById(taskId);
+  if (!task || task.userId !== userId) {
+    sendJson(res, 404, { error: "Task not found" });
+    return;
+  }
+  if (task.status === "pending") {
+    void processAotdSongTask(task.id);
+  }
+  const latestTask = (await aotdSongStore.findById(taskId)) || task;
+  sendJson(res, 200, {
+    ok: true,
+    task: formatAotdSongTask(latestTask),
+  });
+}
+
+async function handleAotdSongCallback(req: HttpRequest, res: HttpResponse) {
+  if (req.method !== "POST") {
+    sendJson(res, 405, { error: "Method not allowed" });
+    return;
+  }
+  const body = await readJsonBody(req);
+  console.log("[aotd-song] callback received", body);
+  sendJson(res, 200, { ok: true });
 }
 
 async function ensurePersistedUser(
@@ -877,6 +1180,32 @@ const server = createServer(async (req, res) => {
 
     if (requestUrl.pathname === "/api/reminders/dispatch") {
       await handleReminderDispatch(req, res);
+      return;
+    }
+
+    if (requestUrl.pathname === "/api/aotd-song/generate") {
+      await handleAotdSongGenerate(req, res);
+      return;
+    }
+
+  if (requestUrl.pathname === "/api/aotd-song/voice-persona/prepare") {
+    await handleAotdSongVoicePersonaPrepare(req, res);
+    return;
+  }
+
+  if (requestUrl.pathname === "/api/aotd-song/voice-persona/confirm") {
+    await handleAotdSongVoicePersonaConfirm(req, res);
+    return;
+  }
+
+    if (requestUrl.pathname.startsWith("/api/aotd-song/tasks/")) {
+      const taskId = Number(requestUrl.pathname.split("/").pop() || "0");
+      await handleAotdSongTaskStatus(req, res, taskId);
+      return;
+    }
+
+    if (requestUrl.pathname === "/api/aotd-song/callback") {
+      await handleAotdSongCallback(req, res);
       return;
     }
 

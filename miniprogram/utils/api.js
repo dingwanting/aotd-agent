@@ -112,19 +112,22 @@ function normalizeProfileInput(profileInput) {
 function requestRecommendation(answers) {
   const previousResult = getStorage(STORAGE_KEYS.result, null);
   const recentExclusions = collectRecentExclusions();
+  const previousTracks =
+    previousResult &&
+    isSameAnswers(previousResult.answers, answers) &&
+    previousResult.playlist &&
+    previousResult.playlist.tracks
+      ? previousResult.playlist.tracks
+      : [];
   const excludeSongIds =
     recentExclusions.excludeSongIds.concat(
-      previousResult && previousResult.playlist && previousResult.playlist.tracks
-        ? previousResult.playlist.tracks.map((track) => track.song && track.song.id).filter(Boolean)
-        : []
+      previousTracks.map((track) => track.song && track.song.id).filter(Boolean)
     );
   const excludeSongKeys =
     recentExclusions.excludeSongKeys.concat(
-      previousResult && previousResult.playlist && previousResult.playlist.tracks
-        ? previousResult.playlist.tracks
-            .map((track) => buildSongKey(track.song || {}))
-            .filter(Boolean)
-        : []
+      previousTracks
+        .map((track) => buildSongKey(track.song || {}))
+        .filter(Boolean)
     );
 
   return new Promise((resolve, reject) => {
@@ -583,6 +586,130 @@ function createEveningReminder() {
   });
 }
 
+function normalizeApiUrl(urlOrPath) {
+  if (!urlOrPath) {
+    return "";
+  }
+  if (/^https?:\/\//i.test(urlOrPath)) {
+    return urlOrPath;
+  }
+  return `${API_BASE_URL}${String(urlOrPath).startsWith("/") ? "" : "/"}${urlOrPath}`;
+}
+
+function normalizeAotdSongTaskPayload(data) {
+  const task = data && data.task ? data.task : {};
+  const song = task && task.song ? task.song : {};
+  return Object.assign({}, data, {
+    task: Object.assign({}, task, {
+      song: song
+        ? Object.assign({}, song, {
+            audioUrl: normalizeApiUrl(song.audioPath || song.audioUrl || ""),
+            voiceSampleUrl: normalizeApiUrl(song.voiceSamplePath || song.voiceSampleUrl || ""),
+          })
+        : null,
+    }),
+  });
+}
+
+function callAotdSongApi(path, method, payload) {
+  const userId = getStorage(STORAGE_KEYS.userId, "");
+  const headers = { "content-type": "application/json" };
+  if (userId) {
+    headers["X-AOTD-User-Id"] = userId;
+  }
+  return new Promise((resolve, reject) => {
+    const handleSuccess = (response) => {
+      if (response.statusCode >= 200 && response.statusCode < 300 && response.data && response.data.ok) {
+        resolve(normalizeAotdSongTaskPayload(response.data || {}));
+        return;
+      }
+      reject(new Error((response.data && response.data.error) || "制作 AOTD 失败"));
+    };
+
+    if (!USE_LOCAL_API && USE_CLOUD_CONTAINER) {
+      const serviceNames = Array.from(new Set([CLOUD_SERVICE_NAME].concat(CLOUD_SERVICE_FALLBACKS || []).filter(Boolean)));
+      const tryCall = (index) => {
+        const serviceName = serviceNames[index];
+        if (!serviceName) {
+          reject(new Error("无法连接到云托管服务"));
+          return;
+        }
+        wx.cloud.callContainer({
+          config: { env: CLOUD_ENV_ID },
+          path,
+          method,
+          header: Object.assign({ "X-WX-SERVICE": serviceName }, headers),
+          data: payload,
+          success: handleSuccess,
+          fail: (error) => {
+            if (index < serviceNames.length - 1) {
+              tryCall(index + 1);
+              return;
+            }
+            reject(new Error((error && error.errMsg) || "制作 AOTD 失败"));
+          },
+        });
+      };
+      tryCall(0);
+      return;
+    }
+
+    wx.request({
+      url: `${API_BASE_URL}${path}`,
+      method,
+      header: headers,
+      data: payload,
+      success: handleSuccess,
+      fail: (error) => reject(new Error((error && error.errMsg) || "制作 AOTD 失败")),
+    });
+  });
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function requestAotdSongGeneration(payload) {
+  const created = await callAotdSongApi("/api/aotd-song/generate", "POST", payload);
+  const createdTask = created && created.task ? created.task : null;
+  if (!createdTask || !createdTask.id) {
+    throw new Error("没有创建成功制作任务");
+  }
+  const timeoutAt = Date.now() + 45000;
+  let taskPayload = created;
+  while (Date.now() < timeoutAt) {
+    if (taskPayload.task && taskPayload.task.status === "completed") {
+      return {
+        song: taskPayload.task.song,
+        meta: taskPayload.task.meta || taskPayload.meta || {},
+        task: taskPayload.task,
+      };
+    }
+    if (taskPayload.task && taskPayload.task.status === "failed") {
+      throw new Error(taskPayload.task.errorMessage || "制作 AOTD 失败");
+    }
+    await sleep(1500);
+    taskPayload = await callAotdSongApi(`/api/aotd-song/tasks/${createdTask.id}`, "GET");
+  }
+  throw new Error("制作时间有点长，请稍后再回来看看");
+}
+
+async function requestVoicePersonaPrepare(payload) {
+  const response = await callAotdSongApi("/api/aotd-song/voice-persona/prepare", "POST", payload);
+  if (!response || !response.voicePersona || !response.voicePersona.taskId || !response.voicePersona.validateInfo) {
+    throw new Error("没有拿到跟读短句");
+  }
+  return response.voicePersona;
+}
+
+async function requestVoicePersonaConfirm(payload) {
+  const response = await callAotdSongApi("/api/aotd-song/voice-persona/confirm", "POST", payload);
+  if (!response || !response.voicePersona || !response.voicePersona.voiceId) {
+    throw new Error("没有生成成功音色");
+  }
+  return response.voicePersona;
+}
+
 module.exports = {
   requestRecommendation,
   loadResultIfMatched,
@@ -592,4 +719,7 @@ module.exports = {
   trackUserEvent,
   requestEveningReminderStatus,
   createEveningReminder,
+  requestAotdSongGeneration,
+  requestVoicePersonaPrepare,
+  requestVoicePersonaConfirm,
 };
