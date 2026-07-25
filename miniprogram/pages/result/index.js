@@ -126,9 +126,7 @@ function buildVocalProfileLabel(value) {
 }
 
 function buildSongMetaText(song, vocalLabel) {
-  const durationSeconds = Math.max(0, Math.round(Number(song && song.durationSeconds ? song.durationSeconds : 0) || 0));
-  const durationText = durationSeconds > 0 ? `${durationSeconds} 秒` : "时长识别中";
-  return `${vocalLabel} · ${durationText} · ${song && song.mode === "demo" ? "Demo 音轨" : "专属歌曲"}`;
+  return `${vocalLabel} · ${song && song.mode === "demo" ? "Demo 音轨" : "专属歌曲"}`;
 }
 
 function buildSongCreationState(playlistTitle) {
@@ -149,6 +147,7 @@ function buildSongCreationState(playlistTitle) {
     generationNote: "",
     savedSongPath: "",
     playingSong: false,
+    loadingSong: false,
     playingVoiceSample: false,
   };
 }
@@ -273,6 +272,15 @@ function buildTempAudioFilePath(track) {
     .replace(/-+/g, "-")
     .replace(/^-|-$/g, "");
   return `${wx.env.USER_DATA_PATH}/${safeName || "aotd-preview"}.mp3`;
+}
+
+function buildSavedSongFilePath(song) {
+  const rawName = song && song.title ? song.title : `aotd-song-${Date.now()}`;
+  const safeName = String(rawName)
+    .replace(/[^\w.-]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+  return `${wx.env.USER_DATA_PATH}/${safeName || "aotd-song"}.mp3`;
 }
 
 function buildTrackSignature(track) {
@@ -963,67 +971,6 @@ Page({
     });
   },
 
-  async probeSongDurationSeconds(audioUrl) {
-    if (!audioUrl || typeof wx.createInnerAudioContext !== "function") {
-      return 0;
-    }
-    const audioContext = wx.createInnerAudioContext();
-    audioContext.autoplay = false;
-    audioContext.obeyMuteSwitch = false;
-    const duration = await new Promise((resolve) => {
-      let settled = false;
-      let attempt = 0;
-      const finish = (value) => {
-        if (settled) {
-          return;
-        }
-        settled = true;
-        resolve(Math.max(0, Math.round(Number(value) || 0)));
-      };
-      const checkDuration = () => {
-        attempt += 1;
-        const currentDuration = Number(audioContext.duration || 0);
-        if (currentDuration > 0) {
-          finish(currentDuration);
-          return;
-        }
-        if (attempt >= 12) {
-          finish(0);
-          return;
-        }
-        setTimeout(checkDuration, 180);
-      };
-      audioContext.onCanplay(() => {
-        setTimeout(checkDuration, 60);
-      });
-      audioContext.onError(() => {
-        finish(0);
-      });
-      setTimeout(() => finish(0), 3200);
-      audioContext.src = audioUrl;
-    });
-    audioContext.destroy();
-    return duration;
-  },
-
-  async enrichGeneratedSongDuration(song, vocalLabel) {
-    if (!song || !song.audioUrl || Number(song.durationSeconds || 0) > 0) {
-      return song;
-    }
-    const durationSeconds = await this.probeSongDurationSeconds(song.audioUrl);
-    if (durationSeconds <= 0) {
-      return song;
-    }
-    const nextSong = Object.assign({}, song, {
-      durationSeconds,
-    });
-    this.setData({
-      songResult: nextSong,
-      songMetaText: buildSongMetaText(nextSong, vocalLabel),
-    });
-    return nextSong;
-  },
-
   async handleGenerateMyAotd() {
     const result = this.data.result;
     const titleText = String(this.data.titleText || "").trim();
@@ -1070,13 +1017,13 @@ Page({
         songMetaText: buildSongMetaText(song, vocalLabel),
         generationNote: payload.meta && payload.meta.note ? payload.meta.note : `这次按${vocalLabel}方向做了你的 AOTD。`,
         savedSongPath: "",
+        loadingSong: false,
       });
-      const resolvedSong = await this.enrichGeneratedSongDuration(song, vocalLabel);
       trackUserEvent({
         type: "aotd_song_generate_success",
         titleText,
-        durationSeconds: Number((resolvedSong && resolvedSong.durationSeconds) || 0),
-        mode: resolvedSong && resolvedSong.mode ? resolvedSong.mode : song.mode,
+        durationSeconds: Number(song.durationSeconds || 0),
+        mode: song.mode,
         vocalProfile,
       }).catch(() => {});
     } catch (error) {
@@ -1099,21 +1046,39 @@ Page({
     const audioContext = wx.createInnerAudioContext();
     audioContext.autoplay = true;
     audioContext.obeyMuteSwitch = false;
+    audioContext.onWaiting(() => {
+      this.setData({
+        loadingSong: true,
+      });
+    });
+    audioContext.onCanplay(() => {
+      this.setData({
+        loadingSong: false,
+      });
+    });
+    audioContext.onPlay(() => {
+      this.setData({
+        loadingSong: false,
+      });
+    });
     audioContext.onStop(() => {
       this.setData({
         playingSong: false,
+        loadingSong: false,
         playingVoiceSample: false,
       });
     });
     audioContext.onEnded(() => {
       this.setData({
         playingSong: false,
+        loadingSong: false,
         playingVoiceSample: false,
       });
     });
     audioContext.onError(() => {
       this.setData({
         playingSong: false,
+        loadingSong: false,
         playingVoiceSample: false,
       });
       wx.showToast({
@@ -1137,6 +1102,11 @@ Page({
       return;
     }
     const audioContext = this.ensureSongAudioContext();
+    this.setData({
+      loadingSong: type === "song",
+      playingSong: false,
+      playingVoiceSample: false,
+    });
     audioContext.src = url;
     audioContext.title = type === "voice" ? "AOTD 标题录音" : "我的 AOTD 小歌";
     audioContext.play();
@@ -1148,6 +1118,9 @@ Page({
 
   handleToggleGeneratedSongPlay() {
     if (!this.data.songResult || !this.data.songResult.audioUrl) {
+      return;
+    }
+    if (this.data.loadingSong) {
       return;
     }
     if (this.data.playingSong && this.songAudioContext) {
@@ -1188,7 +1161,13 @@ Page({
       const download = await new Promise((resolve, reject) => {
         wx.downloadFile({
           url: song.audioUrl,
-          success: resolve,
+          success: (res) => {
+            if (!res || res.statusCode < 200 || res.statusCode >= 300 || !(res.tempFilePath || res.filePath)) {
+              reject(new Error(`音频下载失败(${res && res.statusCode ? res.statusCode : "unknown"})`));
+              return;
+            }
+            resolve(res);
+          },
           fail: reject,
         });
       });
@@ -1196,13 +1175,29 @@ Page({
       if (!tempFilePath) {
         throw new Error("没有拿到可保存的音频文件");
       }
-      const saved = await new Promise((resolve, reject) => {
-        wx.saveFile({
-          tempFilePath,
-          success: resolve,
-          fail: reject,
+      let saved = null;
+      try {
+        saved = await new Promise((resolve, reject) => {
+          wx.saveFile({
+            tempFilePath,
+            success: resolve,
+            fail: reject,
+          });
         });
-      });
+      } catch (saveError) {
+        const fallbackPath = buildSavedSongFilePath(song);
+        await new Promise((resolve, reject) => {
+          wx.getFileSystemManager().copyFile({
+            srcPath: tempFilePath,
+            destPath: fallbackPath,
+            success: resolve,
+            fail: reject,
+          });
+        });
+        saved = {
+          savedFilePath: fallbackPath,
+        };
+      }
       this.setData({
         savedSongPath: saved && saved.savedFilePath ? saved.savedFilePath : tempFilePath,
       });
@@ -1213,8 +1208,9 @@ Page({
       });
     } catch (error) {
       wx.hideLoading();
+      const message = error && error.errMsg ? error.errMsg : error && error.message ? error.message : "";
       wx.showToast({
-        title: error && error.message ? error.message : "保存失败，请重试",
+        title: message || "保存失败，请重试",
         icon: "none",
       });
     }

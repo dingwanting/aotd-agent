@@ -206,7 +206,7 @@
         <view class="result-desc">{{songResult.summary}}</view>
         <view class="result-meta">{{songMetaText}}</view>
         <view class="result-actions">
-          <button class="action-primary" bindtap="handleToggleGeneratedSongPlay">{{playingSong ? '暂停小歌' : '播放小歌'}}</button>
+          <button class="action-primary" disabled="{{loadingSong}}" bindtap="handleToggleGeneratedSongPlay">{{loadingSong ? '加载中' : (playingSong ? '暂停播放' : '播放小歌')}}</button>
           <button class="action-secondary" bindtap="handleSaveGeneratedSong">{{savedSongPath ? '已保存到本地' : '保存音频到本地'}}</button>
         </view>
         <view class="result-note muted">{{generationNote}}</view>
