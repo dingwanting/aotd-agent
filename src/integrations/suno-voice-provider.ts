@@ -6,6 +6,7 @@ const POLL_INTERVAL_MS = 2500;
 const MAX_VALIDATE_POLLS = 20;
 const MAX_GENERATE_POLLS = 30;
 const MAX_AVAILABILITY_POLLS = 8;
+const MAX_GENERATE_CREATE_RETRIES = 4;
 
 interface VoiceValidateResponse {
   code?: number;
@@ -121,6 +122,36 @@ async function getJson(url: string, apiKey: string): Promise<VoiceValidateRespon
   return payload;
 }
 
+async function waitForValidateReady(params: {
+  baseUrl: string;
+  apiKey: string;
+  taskId: string;
+  maxPolls?: number;
+}): Promise<VoiceValidateResponse> {
+  const maxPolls = params.maxPolls || MAX_VALIDATE_POLLS;
+  let latestPayload: VoiceValidateResponse | null = null;
+  for (let attempt = 0; attempt < maxPolls; attempt += 1) {
+    const payload = await getJson(
+      `${params.baseUrl}/api/v1/voice/validate-info?taskId=${encodeURIComponent(params.taskId)}`,
+      params.apiKey,
+    );
+    latestPayload = payload;
+    const status = String(payload.data?.status || "");
+    const validateInfo = String(payload.data?.validateInfo || "").trim();
+    if ((status === "wait_validating" || status === "success") && validateInfo) {
+      return payload;
+    }
+    if (status === "processing_validate_fail" || status === "fail") {
+      throw new Error(payload.data?.errorMessage || "生成验证短句失败");
+    }
+    await sleep(POLL_INTERVAL_MS);
+  }
+  if (latestPayload) {
+    return latestPayload;
+  }
+  throw new Error("生成验证短句超时，请稍后再试");
+}
+
 function resolveVoiceApiConfig() {
   const env = loadEnv();
   if (!env.aotdSongApiKey || !env.aotdSongBaseUrl || !env.aotdSongFileUploadBaseUrl) {
@@ -161,33 +192,29 @@ export async function prepareSunoVoicePersona(
   if (!taskId) {
     throw new Error("Suno Voice 没有返回验证任务 ID");
   }
-  for (let attempt = 0; attempt < MAX_VALIDATE_POLLS; attempt += 1) {
-    await sleep(POLL_INTERVAL_MS);
-    const statusPayload = await getJson(
-      `${baseUrl}/api/v1/voice/validate-info?taskId=${encodeURIComponent(taskId)}`,
-      apiKey,
-    );
-    const status = String(statusPayload.data?.status || "");
-    const validateInfo = String(statusPayload.data?.validateInfo || "").trim();
-    if ((status === "wait_validating" || status === "success") && validateInfo) {
-      return {
-        taskId,
-        validateInfo,
-        sourceVoiceUrl: sourceVoice.publicUrl,
-        status,
-      };
-    }
-    if (status === "processing_validate_fail" || status === "fail") {
-      throw new Error(statusPayload.data?.errorMessage || "生成验证短句失败");
-    }
-  }
-  throw new Error("生成验证短句超时，请稍后再试");
+  const statusPayload = await waitForValidateReady({
+    baseUrl,
+    apiKey,
+    taskId,
+  });
+  return {
+    taskId,
+    validateInfo: String(statusPayload.data?.validateInfo || "").trim(),
+    sourceVoiceUrl: sourceVoice.publicUrl,
+    status: String(statusPayload.data?.status || ""),
+  };
 }
 
 export async function finalizeSunoVoicePersona(
   params: FinalizeSunoVoicePersonaParams,
 ): Promise<FinalizedSunoVoicePersona> {
   const { baseUrl, apiKey, callbackUrl } = resolveVoiceApiConfig();
+  await waitForValidateReady({
+    baseUrl,
+    apiKey,
+    taskId: params.validateTaskId,
+    maxPolls: 12,
+  });
   const verifyVoice = await uploadVoiceFile({
     apiKey,
     fileBase64: params.verifyVoiceBase64,
@@ -195,15 +222,38 @@ export async function finalizeSunoVoicePersona(
     prefix: "verify",
     titleText: params.titleText,
   });
-  const createPayload = await postJson(`${baseUrl}/api/v1/voice/generate`, apiKey, {
-    taskId: params.validateTaskId,
-    verifyUrl: verifyVoice.publicUrl,
-    voiceName: buildVoiceName(params.titleText),
-    description: "created for AOTD personalized song generation",
-    style: "Mandarin pop, late night, intimate vocal",
-    singerSkillLevel: "beginner",
-    callBackUrl: callbackUrl,
-  });
+  let createPayload: VoiceValidateResponse | null = null;
+  let lastCreateError: unknown = null;
+  for (let attempt = 0; attempt < MAX_GENERATE_CREATE_RETRIES; attempt += 1) {
+    try {
+      createPayload = await postJson(`${baseUrl}/api/v1/voice/generate`, apiKey, {
+        taskId: params.validateTaskId,
+        verifyUrl: verifyVoice.publicUrl,
+        voiceName: buildVoiceName(params.titleText),
+        description: "created for AOTD personalized song generation",
+        style: "Mandarin pop, late night, intimate vocal",
+        singerSkillLevel: "beginner",
+        callBackUrl: callbackUrl,
+      });
+      break;
+    } catch (error) {
+      lastCreateError = error;
+      const message = error instanceof Error ? error.message : String(error);
+      if (!/Validate record is not in valid status/i.test(message)) {
+        throw error;
+      }
+      await waitForValidateReady({
+        baseUrl,
+        apiKey,
+        taskId: params.validateTaskId,
+        maxPolls: 4,
+      });
+      await sleep(POLL_INTERVAL_MS);
+    }
+  }
+  if (!createPayload) {
+    throw lastCreateError instanceof Error ? lastCreateError : new Error("生成音色失败");
+  }
   const voiceTaskId = createPayload.data?.taskId || "";
   if (!voiceTaskId) {
     throw new Error("Suno Voice 没有返回音色任务 ID");

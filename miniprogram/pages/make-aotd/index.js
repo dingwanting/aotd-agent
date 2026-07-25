@@ -495,6 +495,13 @@ Page({
       });
       return;
     }
+    if (this.data.voicePersonaValidateText && !this.data.voicePersonaReady) {
+      wx.showToast({
+        title: "先完成专属音色生成，再继续做小歌",
+        icon: "none",
+      });
+      return;
+    }
 
     this.setData({
       generating: true,
