@@ -1,87 +1,10 @@
 <view class="page-shell">
-  <view wx:if="{{loading}}" class="state card">
-    <text class="eyebrow">Make My AOTD</text>
-    <view class="state-title">正在加载你的今晚歌单...</view>
-    <view class="muted">我们会把这次歌单的情绪和你的标题文案，一起做成一首专属小歌。</view>
-  </view>
-
-  <view wx:elif="{{errorMessage}}" class="state card">
-    <text class="eyebrow">暂时失败</text>
-    <view class="state-title">{{errorMessage}}</view>
+  <view class="state card">
+    <text class="eyebrow">AOTD Song Lab</text>
+    <view class="state-title">录音制作功能已下线</view>
+    <view class="state-desc">麦克风相关能力已经取消，目前小程序里只保留歌单结果浏览和歌曲播放。</view>
     <view class="actions">
       <button class="action-primary" bindtap="handleBackToResult">回到结果页</button>
     </view>
   </view>
-
-  <block wx:else>
-    <view class="make-card card">
-      <text class="eyebrow">AOTD Song Lab</text>
-      <view class="make-title">制作我的 AOTD</view>
-      <view class="make-desc">参考这次 5 首歌的氛围，把你读出的主标题做成一首更像今晚心情的小歌。</view>
-      <view class="make-note">现在会先缓存这 5 首歌的试听片段，再结合你的录音一起调歌的曲风和人声方向。</view>
-    </view>
-
-    <view class="make-card card">
-      <text class="eyebrow">Title</text>
-      <view class="section-title">先定下这首小歌的标题</view>
-      <input
-        class="title-input"
-        value="{{titleText}}"
-        maxlength="24"
-        placeholder="比如：今晚先抱抱自己"
-        bindinput="handleTitleInput"
-      />
-    </view>
-
-    <view class="make-card card">
-      <text class="eyebrow">Source Tracks</text>
-      <view class="section-title">这次会参考的 5 首歌</view>
-      <view class="source-tracks">
-        <view wx:for="{{result.playlist.tracks}}" wx:key="rank" class="source-track">
-          <text class="source-track__rank">#{{item.rank}}</text>
-          <view class="source-track__copy">
-            <view class="source-track__title">{{item.song.title}}</view>
-            <view class="source-track__artist muted">{{item.song.artist}}</view>
-          </view>
-        </view>
-      </view>
-    </view>
-
-    <view class="make-card card">
-      <text class="eyebrow">Voice</text>
-      <view class="section-title">先录一段 8-12 秒标题语音</view>
-      <view class="voice-status {{recording ? 'voice-status--recording' : ''}}">
-        {{recording ? ('正在录音 ' + recordDurationText) : voiceStatusText}}
-      </view>
-      <view class="generate-tip">别只读标题，尽量连续说 2-3 句完整的话，比如你今晚的状态、想被陪伴的方式，这样更容易贴近你的声音。</view>
-      <view class="voice-actions">
-        <button wx:if="{{!recording}}" class="action-primary" bindtap="handleStartRecord">开始录音</button>
-        <button wx:if="{{recording}}" class="action-primary" bindtap="handleStopRecord">结束录音</button>
-        <button class="action-secondary" disabled="{{!voiceReady}}" bindtap="handleClearVoice">重录一遍</button>
-      </view>
-    </view>
-
-    <view class="make-card card">
-      <text class="eyebrow">Generate</text>
-      <view class="section-title">把它做成一首小歌</view>
-      <view class="generate-tip">系统会先缓存 5 首参考歌的试听，再把它们的风格标签和你的录音一起送进生成链路。做完后你可以直接试听。</view>
-      <button class="action-primary {{generating ? 'action-primary--disabled' : ''}}" loading="{{generating}}" disabled="{{generating || !voiceReady}}" bindtap="handleGenerateSong">
-        {{generating ? generationText : '开始制作我的 AOTD'}}
-      </button>
-    </view>
-
-    <view wx:if="{{songResult}}" class="make-card card">
-      <text class="eyebrow">Result</text>
-      <view class="section-title">{{songResult.title || '我的 AOTD 小歌'}}</view>
-      <view class="result-desc">{{songResult.summary}}</view>
-      <view class="result-meta">{{songMetaText}}</view>
-      <view class="result-actions">
-        <button class="action-primary" bindtap="handleToggleSongPlay">{{playingSong ? '暂停小歌' : '播放小歌'}}</button>
-      </view>
-      <view wx:if="{{songResult.voiceSampleUrl}}" class="voice-preview" bindtap="handleToggleVoiceSample">
-        {{playingVoiceSample ? '暂停标题录音' : '试听标题录音'}}
-      </view>
-      <view class="result-note muted">{{generationNote}}</view>
-    </view>
-  </block>
 </view>

@@ -680,7 +680,6 @@ function normalizeAotdSongTaskPayload(data) {
       song: song
         ? Object.assign({}, song, {
             audioUrl: buildAotdSongMediaUrl(song.audioPath || song.audioUrl || ""),
-            voiceSampleUrl: buildAotdSongMediaUrl(song.voiceSamplePath || song.voiceSampleUrl || ""),
           })
         : null,
     }),

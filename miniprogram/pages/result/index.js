@@ -90,13 +90,6 @@ function normalizeCoverTitle(rawTitle) {
   return title || "AOTD|今晚的歌单已经备好";
 }
 
-function formatDuration(ms) {
-  const totalSeconds = Math.max(1, Math.round((ms || 0) / 1000));
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  return `${minutes}:${String(seconds).padStart(2, "0")}`;
-}
-
 function mapTrackForSongGeneration(track) {
   const song = track && track.song ? track.song : {};
   return {
@@ -242,7 +235,6 @@ function buildSongCreationState(playlistTitle, answers) {
     savedSongPath: "",
     playingSong: false,
     loadingSong: false,
-    playingVoiceSample: false,
   };
 }
 
@@ -927,7 +919,6 @@ Page({
       this.songAudioContext.stop();
       this.setData({
         playingSong: false,
-        playingVoiceSample: false,
       });
     }
     this.resetSongGenerationProgress();
@@ -992,7 +983,6 @@ Page({
       savedSongPath: hasLiveTask ? "" : snapshot.savedSongPath || "",
       loadingSong: false,
       playingSong: false,
-      playingVoiceSample: false,
     });
     if (hasLiveTask) {
       this.startSongGenerationProgress();
@@ -1305,115 +1295,6 @@ Page({
     });
   },
 
-  handleOpenMakeAotd() {
-    this.setData({
-      activeTab: RESULT_TABS.MY_AOTD,
-    });
-  },
-
-  ensureRecorderManager() {
-    if (this.recorderManager || typeof wx.getRecorderManager !== "function") {
-      return this.recorderManager;
-    }
-    const recorderManager = wx.getRecorderManager();
-    recorderManager.onStart(() => {
-      this.recordStartedAt = Date.now();
-      if (this.recordingTimer) {
-        clearInterval(this.recordingTimer);
-      }
-      this.recordingTimer = setInterval(() => {
-        const durationMs = Date.now() - this.recordStartedAt;
-        this.setData({
-          recordDurationText: formatDuration(durationMs),
-        });
-      }, 250);
-      this.setData({
-        recording: true,
-        recordDurationText: "0:00",
-        voiceStatusText: "正在录音，连续说两三句，语气自然一点就好。",
-      });
-    });
-    recorderManager.onStop((res) => {
-      if (this.recordingTimer) {
-        clearInterval(this.recordingTimer);
-        this.recordingTimer = null;
-      }
-      const durationMs = Date.now() - (this.recordStartedAt || Date.now());
-      const nextDuration = res && typeof res.duration === "number" ? res.duration : durationMs;
-      this.setData({
-        recording: false,
-        voiceReady: Boolean(res && res.tempFilePath),
-        voiceTempFilePath: res && res.tempFilePath ? res.tempFilePath : "",
-        voiceDurationMs: nextDuration,
-        recordDurationText: formatDuration(nextDuration),
-        voiceStatusText: res && res.tempFilePath ? `录好了，时长 ${formatDuration(nextDuration)}` : "录音失败，请再试一次。",
-      });
-    });
-    recorderManager.onError((error) => {
-      if (this.recordingTimer) {
-        clearInterval(this.recordingTimer);
-        this.recordingTimer = null;
-      }
-      this.setData({
-        recording: false,
-        voiceStatusText: error && error.errMsg ? error.errMsg : "录音失败，请重试。",
-      });
-    });
-    this.recorderManager = recorderManager;
-    return recorderManager;
-  },
-
-  async handleStartSongRecord() {
-    if (this.data.recording) {
-      return;
-    }
-    try {
-      await new Promise((resolve, reject) => {
-        wx.authorize({
-          scope: "scope.record",
-          success: resolve,
-          fail: reject,
-        });
-      }).catch(() => Promise.resolve());
-      const recorderManager = this.ensureRecorderManager();
-      recorderManager.start({
-        duration: MAX_RECORD_DURATION_MS,
-        format: "mp3",
-        numberOfChannels: 1,
-        sampleRate: 16000,
-        encodeBitRate: 32000,
-      });
-    } catch (error) {
-      wx.showToast({
-        title: "需要录音权限",
-        icon: "none",
-      });
-    }
-  },
-
-  handleStopSongRecord() {
-    if (!this.data.recording || !this.recorderManager) {
-      return;
-    }
-    this.recorderManager.stop();
-  },
-
-  handleClearSongVoice() {
-    this.setData({
-      voiceReady: false,
-      voiceTempFilePath: "",
-      voiceDurationMs: 0,
-      recordDurationText: "0:00",
-      voiceStatusText: "已清空，重新录一遍吧，尽量说满 8 秒。",
-      songResult: null,
-      songMetaText: "",
-      generationNote: "",
-      savedSongPath: "",
-      playingSong: false,
-      playingVoiceSample: false,
-    });
-  },
-
   handleSongTitleInput(event) {
     const nextValue = event && event.detail ? String(event.detail.value || "") : "";
     const trimmedValue = nextValue.slice(0, MAX_SONG_TITLE_LENGTH);
@@ -1613,21 +1494,18 @@ Page({
       this.setData({
         playingSong: false,
         loadingSong: false,
-        playingVoiceSample: false,
       });
     });
     audioContext.onEnded(() => {
       this.setData({
         playingSong: false,
         loadingSong: false,
-        playingVoiceSample: false,
       });
     });
     audioContext.onError(() => {
       this.setData({
         playingSong: false,
         loadingSong: false,
-        playingVoiceSample: false,
       });
       wx.showToast({
         title: "播放失败，请重试",
@@ -1678,22 +1556,20 @@ Page({
     }
   },
 
-  playSongAudio(url, type) {
+  playSongAudio(url) {
     if (!url) {
       return;
     }
     const audioContext = this.ensureSongAudioContext();
     this.setData({
-      loadingSong: type === "song",
+      loadingSong: true,
       playingSong: false,
-      playingVoiceSample: false,
     });
     audioContext.src = url;
-    audioContext.title = type === "voice" ? "AOTD 标题录音" : "我的 AOTD 小歌";
+    audioContext.title = "我的 AOTD 小歌";
     audioContext.play();
     this.setData({
-      playingSong: type === "song",
-      playingVoiceSample: type === "voice",
+      playingSong: true,
     });
   },
 
@@ -1710,24 +1586,13 @@ Page({
     }
     try {
       const playableUrl = this.data.savedSongPath || await this.resolveGeneratedSongPlayableUrl(this.data.songResult.audioUrl);
-      this.playSongAudio(playableUrl, "song");
+      this.playSongAudio(playableUrl);
     } catch (error) {
       wx.showToast({
         title: error && error.message ? error.message : "播放失败，请重试",
         icon: "none",
       });
     }
-  },
-
-  handleToggleGeneratedVoiceSample() {
-    if (!this.data.songResult || !this.data.songResult.voiceSampleUrl) {
-      return;
-    }
-    if (this.data.playingVoiceSample && this.songAudioContext) {
-      this.songAudioContext.stop();
-      return;
-    }
-    this.playSongAudio(this.data.songResult.voiceSampleUrl, "voice");
   },
 
   async handleSaveGeneratedSong() {
