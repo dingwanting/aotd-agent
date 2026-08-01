@@ -12,22 +12,65 @@ export interface AotdRunOptions {
   rotationSeed?: number | string;
 }
 
-export class AotdAgent {
-  async run(answers: AotdQuestionnaireAnswers, options?: AotdRunOptions): Promise<AotdResponse> {
-    const env = loadEnv();
-    const client = new OpenAICompatibleClient({
-      apiKey: env.openaiApiKey,
-      model: env.openaiModel || "gpt-4o-mini",
-      baseUrl: env.openaiBaseUrl,
-    });
+interface AotdAgentSharedResources {
+  signature: string;
+  planner: AotdPlanner;
+  retriever: AotdRetriever;
+}
 
-    const planner = new AotdPlanner(client);
-    const plan = await planner.plan({ answers });
-    const catalog = loadSongsFromWorkbook(env.aotdWorkbookPath);
-    const retriever = new AotdRetriever(catalog);
+let sharedResources: AotdAgentSharedResources | null = null;
+
+function buildSharedSignature() {
+  const env = loadEnv();
+  return JSON.stringify({
+    workbookPath: env.aotdWorkbookPath,
+    openaiModel: env.openaiModel || "gpt-4o-mini",
+    openaiBaseUrl: env.openaiBaseUrl,
+    hasApiKey: Boolean(env.openaiApiKey),
+  });
+}
+
+function createSharedResources(): AotdAgentSharedResources {
+  const env = loadEnv();
+  const client = new OpenAICompatibleClient({
+    apiKey: env.openaiApiKey,
+    model: env.openaiModel || "gpt-4o-mini",
+    baseUrl: env.openaiBaseUrl,
+  });
+  const planner = new AotdPlanner(client);
+  const catalog = loadSongsFromWorkbook(env.aotdWorkbookPath);
+  const retriever = new AotdRetriever(catalog);
+  return {
+    signature: buildSharedSignature(),
+    planner,
+    retriever,
+  };
+}
+
+function getSharedResources(): AotdAgentSharedResources {
+  const nextSignature = buildSharedSignature();
+  if (!sharedResources || sharedResources.signature !== nextSignature) {
+    sharedResources = createSharedResources();
+  }
+  return sharedResources;
+}
+
+export class AotdAgent {
+  private readonly shared: AotdAgentSharedResources;
+
+  constructor() {
+    this.shared = getSharedResources();
+  }
+
+  static preload(): void {
+    getSharedResources();
+  }
+
+  async run(answers: AotdQuestionnaireAnswers, options?: AotdRunOptions): Promise<AotdResponse> {
+    const plan = await this.shared.planner.plan({ answers });
     const rotationSeed = options?.rotationSeed ?? Date.now();
     // 取 12 个候选，让 retriever 在多样化重排后能稳定挑出 5 首不重复的
-    const candidates = retriever.retrieve(plan, 12, {
+    const candidates = this.shared.retriever.retrieve(plan, 12, {
       excludeSongIds: options?.excludeSongIds,
       excludeSongKeys: options?.excludeSongKeys,
       rotationSeed,

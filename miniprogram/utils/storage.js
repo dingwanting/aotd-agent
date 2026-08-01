@@ -1,6 +1,7 @@
 const STORAGE_KEYS = {
   answers: "aotd.answers",
   result: "aotd.result",
+  songCreationState: "aotd.songCreationState",
   questionDeck: "aotd.questionDeck",
   questionDeckHistory: "aotd.questionDeckHistory",
   playlistHistory: "aotd.playlistHistory",
@@ -28,6 +29,14 @@ function setStorage(key, value) {
 function clearResult() {
   try {
     wx.removeStorageSync(STORAGE_KEYS.result);
+  } catch {
+    // ignore
+  }
+}
+
+function clearSongCreationState() {
+  try {
+    wx.removeStorageSync(STORAGE_KEYS.songCreationState);
   } catch {
     // ignore
   }
@@ -102,6 +111,7 @@ module.exports = {
   getStorage,
   setStorage,
   clearResult,
+  clearSongCreationState,
   clearAnswers,
   clearQuestionDeck,
   clearSessionIdentity,

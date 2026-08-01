@@ -427,16 +427,23 @@ export class AotdPlanner {
   async plan(request: AotdRequest): Promise<AotdPlan> {
     const questionnaireInput = renderQuestionnaireAnswers(request.answers);
     const rulePlan = buildRulePlan(request);
-    const raw = await this.runtime.run(
-      [
-        "以下是用户完成 AOTD 三道题后的答案：",
-        questionnaireInput,
-        "以下是规则抽取出的基础判断，请在不偏离答案的前提下做更细腻的补充：",
-        JSON.stringify(rulePlan, null, 2),
-        "请基于 few-shot 样例输出 AOTD 选歌计划 JSON。",
-        "字段必须包括：consumptionSource, emotionalNeed, emotionalImagery, userIntent, todayStateSummary, moodSignals, sceneSignals, objectiveSignals, constraints, playlistStrategy, queryHints, explanationStyle, uncertainty。",
-      ].join("\n"),
-    );
+    let raw = "";
+    try {
+      raw = await this.runtime.run(
+        [
+          "以下是用户完成 AOTD 三道题后的答案：",
+          questionnaireInput,
+          "以下是规则抽取出的基础判断，请在不偏离答案的前提下做更细腻的补充：",
+          JSON.stringify(rulePlan, null, 2),
+          "请基于 few-shot 样例输出 AOTD 选歌计划 JSON。",
+          "字段必须包括：consumptionSource, emotionalNeed, emotionalImagery, userIntent, todayStateSummary, moodSignals, sceneSignals, objectiveSignals, constraints, playlistStrategy, queryHints, explanationStyle, uncertainty。",
+        ].join("\n"),
+      );
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      console.warn("[aotd] planner model fallback", { reason });
+      return buildFallbackPlan(request, `模型服务暂时不可用，已切换到规则兜底选歌逻辑：${reason}`);
+    }
 
     try {
       const parsed = JSON.parse(raw);

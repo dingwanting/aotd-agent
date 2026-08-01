@@ -410,15 +410,17 @@ export async function initQuestionPage(pageKey) {
 export async function requestRecommendation(answers) {
   const previousResult = loadResult();
   const recentExclusions = collectRecentExclusions();
+  const previousTracks =
+    isSameAnswers(previousResult?.answers, answers) && Array.isArray(previousResult?.playlist?.tracks)
+      ? previousResult.playlist.tracks
+      : [];
   const excludeSongIds =
     recentExclusions.excludeSongIds.concat(
-      previousResult?.playlist?.tracks?.map((track) => track.song?.id).filter(Boolean) || [],
+      previousTracks.map((track) => track.song?.id).filter(Boolean),
     );
   const excludeSongKeys =
     recentExclusions.excludeSongKeys.concat(
-      previousResult?.playlist?.tracks
-        ?.map((track) => buildSongKey(track.song))
-        .filter(Boolean) || [],
+      previousTracks.map((track) => buildSongKey(track.song)).filter(Boolean),
     );
 
   const user = getCurrentUser();

@@ -129,19 +129,30 @@ App({
 
   async ensureUserSession() {
     let userId = getStorage(STORAGE_KEYS.userId, "");
-    if (userId) {
+    const isAnonymous = getStorage(STORAGE_KEYS.isAnonymous, true);
+    if (userId && !isAnonymous) {
       this.flushPendingProfile(userId).catch(() => {});
       return userId;
     }
 
     userId = await this.bootstrapUser();
     if (userId) {
-      this.flushPendingProfile(userId).catch(() => {});
-      return userId;
+      const nextIsAnonymous = getStorage(STORAGE_KEYS.isAnonymous, true);
+      if (nextIsAnonymous) {
+        userId = "";
+      } else {
+        this.flushPendingProfile(userId).catch(() => {});
+        return userId;
+      }
     }
 
     userId = await this.refreshProfile();
-    return userId || getStorage(STORAGE_KEYS.userId, "");
+    const refreshedIsAnonymous = getStorage(STORAGE_KEYS.isAnonymous, true);
+    if (userId && !refreshedIsAnonymous) {
+      this.flushPendingProfile(userId).catch(() => {});
+      return userId;
+    }
+    return "";
   },
 
   globalData: {},

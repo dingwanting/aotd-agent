@@ -1,5 +1,12 @@
 const { STORAGE_KEYS, getStorage } = require("../../utils/storage");
 const { requestAotdSongGeneration, trackUserEvent } = require("../../utils/api");
+const {
+  API_BASE_URL,
+  USE_CLOUD_CONTAINER,
+  CLOUD_ENV_ID,
+  CLOUD_SERVICE_NAME,
+  CLOUD_SERVICE_FALLBACKS,
+} = require("../../utils/config");
 
 const MAX_RECORD_DURATION_MS = 12000;
 const MIN_RECORD_DURATION_MS = 8000;
@@ -33,6 +40,185 @@ function mapTrackForSongGeneration(track) {
 function getFileExtension(filePath) {
   const match = String(filePath || "").match(/\.([a-zA-Z0-9]+)(?:\?|$)/);
   return match && match[1] ? match[1].toLowerCase() : "mp3";
+}
+
+function buildSavedSongFilePath(song) {
+  const rawName = song && song.title ? song.title : `aotd-song-${Date.now()}`;
+  const safeName = String(rawName)
+    .replace(/[^\w.-]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+  return `${wx.env.USER_DATA_PATH}/${safeName || "aotd-song"}.mp3`;
+}
+
+function inferAudioExtension(url) {
+  const match = String(url || "").match(/\.([a-zA-Z0-9]+)(?:\?|$)/);
+  return match && match[1] ? match[1].toLowerCase() : "mp3";
+}
+
+function buildGeneratedSongTempFilePath(song, sourceUrl) {
+  const rawName = song && song.title ? song.title : `aotd-song-${Date.now()}`;
+  const safeName = String(rawName)
+    .replace(/[^\w.-]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+  const extension = inferAudioExtension(sourceUrl);
+  return `${wx.env.USER_DATA_PATH}/${safeName || "aotd-song-preview"}.${extension}`;
+}
+
+function extractCloudContainerPath(urlOrPath) {
+  if (!urlOrPath) {
+    return "";
+  }
+  const normalized = String(urlOrPath);
+  if (/^https?:\/\//i.test(normalized)) {
+    if (normalized.indexOf(API_BASE_URL) !== 0) {
+      return "";
+    }
+    const path = normalized.slice(API_BASE_URL.length);
+    return path.startsWith("/") ? path : `/${path}`;
+  }
+  return normalized.startsWith("/") ? normalized : `/${normalized}`;
+}
+
+function unlinkFileIfExists(filePath) {
+  if (!filePath) {
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => {
+    wx.getFileSystemManager().unlink({
+      filePath,
+      success: resolve,
+      fail: () => resolve(),
+    });
+  });
+}
+
+function copyFileWithOverwrite(srcPath, destPath) {
+  if (!srcPath || !destPath) {
+    return Promise.reject(new Error("缺少文件路径"));
+  }
+  if (srcPath === destPath) {
+    return Promise.resolve(destPath);
+  }
+  return unlinkFileIfExists(destPath).then(
+    () =>
+      new Promise((resolve, reject) => {
+        wx.getFileSystemManager().copyFile({
+          srcPath,
+          destPath,
+          success: () => resolve(destPath),
+          fail: reject,
+        });
+      })
+  );
+}
+
+function readLocalAudioFile(filePath) {
+  const fs = wx.getFileSystemManager();
+  return new Promise((resolve) => {
+    fs.getFileInfo({
+      filePath,
+      success: (info) => {
+        resolve(Boolean(info && info.size > 0));
+      },
+      fail: () => resolve(false),
+    });
+  });
+}
+
+function fetchGeneratedSongTempFileViaCloudContainer(sourceUrl, song) {
+  const path = extractCloudContainerPath(sourceUrl);
+  if (!path) {
+    return Promise.reject(new Error("当前音频地址不支持云托管拉取"));
+  }
+
+  const filePath = buildGeneratedSongTempFilePath(song, sourceUrl);
+  const fs = wx.getFileSystemManager();
+  const serviceNames = Array.from(
+    new Set([CLOUD_SERVICE_NAME].concat(CLOUD_SERVICE_FALLBACKS || []).filter(Boolean))
+  );
+
+  return new Promise((resolve, reject) => {
+    const tryRequest = (index) => {
+      const serviceName = serviceNames[index];
+      if (!serviceName) {
+        reject(new Error("当前无法连接歌曲播放服务，请检查云托管配置。"));
+        return;
+      }
+
+      wx.cloud.callContainer({
+        config: {
+          env: CLOUD_ENV_ID,
+        },
+        path,
+        method: "GET",
+        header: {
+          "X-WX-SERVICE": serviceName,
+        },
+        responseType: "arraybuffer",
+        success: (response) => {
+          const arrayBuffer = response && response.data;
+          if (response.statusCode >= 200 && response.statusCode < 300 && arrayBuffer && arrayBuffer.byteLength) {
+            fs.writeFile({
+              filePath,
+              data: arrayBuffer,
+              encoding: "binary",
+              success: () => resolve(filePath),
+              fail: (error) =>
+                reject(new Error((error && error.errMsg) || "歌曲文件写入失败。")),
+            });
+            return;
+          }
+
+          if (index < serviceNames.length - 1) {
+            tryRequest(index + 1);
+            return;
+          }
+
+          reject(new Error(`歌曲下载失败(${response && response.statusCode ? response.statusCode : "unknown"})`));
+        },
+        fail: (error) => {
+          if (index < serviceNames.length - 1) {
+            tryRequest(index + 1);
+            return;
+          }
+
+          reject(new Error((error && error.errMsg) || "当前无法连接歌曲播放服务。"));
+        },
+      });
+    };
+
+    tryRequest(0);
+  });
+}
+
+async function persistAudioToLocalFile(song, sourcePathOrUrl) {
+  const targetPath = buildSavedSongFilePath(song);
+  if (!sourcePathOrUrl) {
+    throw new Error("没有拿到可保存的音频文件");
+  }
+  if (sourcePathOrUrl.indexOf(wx.env.USER_DATA_PATH) === 0) {
+    return copyFileWithOverwrite(sourcePathOrUrl, targetPath);
+  }
+  const download = await new Promise((resolve, reject) => {
+    wx.downloadFile({
+      url: sourcePathOrUrl,
+      success: (res) => {
+        if (!res || res.statusCode < 200 || res.statusCode >= 300 || !(res.tempFilePath || res.filePath)) {
+          reject(new Error(`音频下载失败(${res && res.statusCode ? res.statusCode : "unknown"})`));
+          return;
+        }
+        resolve(res);
+      },
+      fail: reject,
+    });
+  });
+  const tempFilePath = download && (download.tempFilePath || download.filePath);
+  if (!tempFilePath) {
+    throw new Error("没有拿到可保存的音频文件");
+  }
+  return copyFileWithOverwrite(tempFilePath, targetPath);
 }
 
 Page({
@@ -84,6 +270,8 @@ Page({
       this.audioContext.destroy();
       this.audioContext = null;
     }
+    this.generatedSongTempFilePath = "";
+    this.generatedSongSourceUrl = "";
   },
 
   ensureRecorderManager() {
@@ -278,6 +466,7 @@ Page({
   async handleGenerateSong() {
     const result = this.data.result;
     const titleText = String(this.data.titleText || "").trim();
+    const voiceTempFilePath = this.data.voiceTempFilePath;
     if (!titleText) {
       wx.showToast({
         title: "先输入主标题",
@@ -285,7 +474,7 @@ Page({
       });
       return;
     }
-    if (!this.data.voiceReady || !this.data.voiceTempFilePath) {
+    if (!this.data.voiceReady || !voiceTempFilePath) {
       wx.showToast({
         title: "先录一段标题语音",
         icon: "none",
@@ -305,10 +494,32 @@ Page({
     });
 
     try {
+      const voiceFormat = getFileExtension(voiceTempFilePath);
+      let voiceBase64 = "";
+      let voiceSourceUrl = "";
+
       this.setData({
-        generationText: "正在上传录音...",
+        generationText: "正在整理录音...",
       });
-      const uploadedVoice = await this.uploadVoiceFile(this.data.voiceTempFilePath);
+
+      try {
+        voiceBase64 = await this.readVoiceBase64(voiceTempFilePath);
+      } catch (error) {
+        console.warn("[make-aotd] read voice base64 failed", error);
+      }
+
+      if (!voiceBase64) {
+        this.setData({
+          generationText: "正在上传录音...",
+        });
+        const uploadedVoice = await this.uploadVoiceFile(voiceTempFilePath);
+        voiceSourceUrl = uploadedVoice.tempFileURL || "";
+      }
+
+      if (!voiceBase64 && !voiceSourceUrl) {
+        throw new Error("录音读取失败，请重新录一遍");
+      }
+
       this.setData({
         generationText: "正在生成专属 AOTD 小歌...",
       });
@@ -317,8 +528,9 @@ Page({
         playlistTitle: result.playlist.title,
         answers: result.answers,
         tracks: result.playlist.tracks.map(mapTrackForSongGeneration),
-        voiceSourceUrl: uploadedVoice.tempFileURL,
-        voiceFormat: "mp3",
+        voiceBase64,
+        voiceSourceUrl,
+        voiceFormat,
         voiceDurationMs: this.data.voiceDurationMs,
       });
       const song = payload.song || {};
@@ -362,7 +574,29 @@ Page({
     });
   },
 
-  handleToggleSongPlay() {
+  async resolveGeneratedSongPlayableUrl(sourceUrl) {
+    const song = this.data.songResult || {};
+    if (!sourceUrl) {
+      return "";
+    }
+    if (this.generatedSongTempFilePath && this.generatedSongSourceUrl === sourceUrl) {
+      const exists = await readLocalAudioFile(this.generatedSongTempFilePath);
+      if (exists) {
+        return this.generatedSongTempFilePath;
+      }
+      this.generatedSongTempFilePath = "";
+      this.generatedSongSourceUrl = "";
+    }
+    if (!USE_CLOUD_CONTAINER) {
+      return sourceUrl;
+    }
+    const tempFilePath = await fetchGeneratedSongTempFileViaCloudContainer(sourceUrl, song);
+    this.generatedSongTempFilePath = tempFilePath;
+    this.generatedSongSourceUrl = sourceUrl;
+    return tempFilePath;
+  },
+
+  async handleToggleSongPlay() {
     if (!this.data.songResult || !this.data.songResult.audioUrl) {
       return;
     }
@@ -370,7 +604,15 @@ Page({
       this.audioContext.stop();
       return;
     }
-    this.playAudio(this.data.savedSongPath || this.data.songResult.audioUrl, "song");
+    try {
+      const playableUrl = this.data.savedSongPath || await this.resolveGeneratedSongPlayableUrl(this.data.songResult.audioUrl);
+      this.playAudio(playableUrl, "song");
+    } catch (error) {
+      wx.showToast({
+        title: error && error.message ? error.message : "播放失败，请重试",
+        icon: "none",
+      });
+    }
   },
 
   handleToggleVoiceSample() {
@@ -401,26 +643,10 @@ Page({
       mask: true,
     });
     try {
-      const download = await new Promise((resolve, reject) => {
-        wx.downloadFile({
-          url: song.audioUrl,
-          success: resolve,
-          fail: reject,
-        });
-      });
-      const tempFilePath = download && (download.tempFilePath || download.filePath);
-      if (!tempFilePath) {
-        throw new Error("没有拿到可保存的音频文件");
-      }
-      const saved = await new Promise((resolve, reject) => {
-        wx.saveFile({
-          tempFilePath,
-          success: resolve,
-          fail: reject,
-        });
-      });
+      const playableUrl = await this.resolveGeneratedSongPlayableUrl(song.audioUrl);
+      const savedFilePath = await persistAudioToLocalFile(song, playableUrl);
       this.setData({
-        savedSongPath: saved && saved.savedFilePath ? saved.savedFilePath : tempFilePath,
+        savedSongPath: savedFilePath,
       });
       wx.hideLoading();
       wx.showToast({

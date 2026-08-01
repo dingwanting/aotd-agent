@@ -1,5 +1,7 @@
 node_modules/
 dist/
+.local-node/
+web/generated/
 .env
 project.private.config.json
 .DS_Store

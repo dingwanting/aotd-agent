@@ -1,3 +1,4 @@
+import type { AotdQuestionnaireAnswers } from "../domain/aotd/types.js";
 import {
   generateAotdSongDemo,
   type GenerateAotdSongDemoParams,
@@ -25,6 +26,7 @@ export interface GenerateAotdSongParams {
   titleText: string;
   playlistTitle: string;
   tracks: AotdSongTrackSeed[];
+  answers?: AotdQuestionnaireAnswers;
   voiceBase64: string;
   voiceFormat: string;
   vocalProfile?: AotdSongVocalProfile;

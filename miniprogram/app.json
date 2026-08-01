@@ -3,9 +3,7 @@
     "pages/landing/index",
     "pages/question/index",
     "pages/result/index",
-    "pages/make-aotd/index",
-    "pages/full-player/index",
-    "pages/player-webview/index"
+    "pages/make-aotd/index"
   ],
   "window": {
     "navigationBarTitleText": "AOTD",

@@ -1,3 +1,5 @@
 {
-  "navigationBarTitleText": "AOTD 结果"
+  "navigationBarTitleText": "AOTD 结果",
+  "enableShareAppMessage": true,
+  "enableShareTimeline": true
 }

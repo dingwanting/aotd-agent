@@ -64,7 +64,7 @@
     <view class="make-card card">
       <text class="eyebrow">Generate</text>
       <view class="section-title">把它做成一首小歌</view>
-      <view class="generate-tip">系统会先缓存 5 首参考歌的试听，再把它们的风格标签和你的录音一起送进生成链路。做完后你可以直接试听，也可以把音频保存到本地。</view>
+      <view class="generate-tip">系统会先缓存 5 首参考歌的试听，再把它们的风格标签和你的录音一起送进生成链路。做完后你可以直接试听。</view>
       <button class="action-primary {{generating ? 'action-primary--disabled' : ''}}" loading="{{generating}}" disabled="{{generating || !voiceReady}}" bindtap="handleGenerateSong">
         {{generating ? generationText : '开始制作我的 AOTD'}}
       </button>
@@ -77,7 +77,6 @@
       <view class="result-meta">{{songMetaText}}</view>
       <view class="result-actions">
         <button class="action-primary" bindtap="handleToggleSongPlay">{{playingSong ? '暂停小歌' : '播放小歌'}}</button>
-        <button class="action-secondary" bindtap="handleSaveSong">{{savedSongPath ? '已保存到本地' : '保存音频到本地'}}</button>
       </view>
       <view wx:if="{{songResult.voiceSampleUrl}}" class="voice-preview" bindtap="handleToggleVoiceSample">
         {{playingVoiceSample ? '暂停标题录音' : '试听标题录音'}}

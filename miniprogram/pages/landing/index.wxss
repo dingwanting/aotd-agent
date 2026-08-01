@@ -88,9 +88,6 @@
 }
 
 .avatar-picker {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
   gap: 18rpx;
   margin-top: 32rpx;
   padding: 0;
@@ -102,6 +99,19 @@
   border: none;
 }
 
+.avatar-picker__card {
+  display: flex;
+  align-items: center;
+  gap: 24rpx;
+  width: 100%;
+  padding: 24rpx;
+  box-sizing: border-box;
+  border-radius: 30rpx;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96) 0%, rgba(252, 240, 244, 0.98) 100%);
+  border: 2rpx solid rgba(229, 139, 168, 0.26);
+  box-shadow: 0 16rpx 34rpx rgba(220, 146, 174, 0.12);
+}
+
 .avatar-picker__image {
   width: 148rpx;
   height: 148rpx;
@@ -109,11 +119,56 @@
   overflow: hidden;
   background: rgba(255, 255, 255, 0.74);
   box-shadow: 0 12rpx 30rpx rgba(220, 146, 174, 0.18);
+  flex-shrink: 0;
+}
+
+.avatar-picker__content {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+}
+
+.avatar-picker__title {
+  font-size: 30rpx;
+  line-height: 1.35;
+  font-weight: 600;
+  color: #5c3947;
 }
 
 .avatar-picker__copy {
+  margin-top: 8rpx;
   font-size: 24rpx;
   color: #9a6278;
+}
+
+.avatar-picker__status {
+  margin-top: 10rpx;
+  font-size: 22rpx;
+  line-height: 1.5;
+  color: rgba(90, 67, 76, 0.72);
+}
+
+.avatar-picker__action {
+  flex-shrink: 0;
+  min-width: 116rpx;
+  height: 64rpx;
+  padding: 0 22rpx;
+  border-radius: 999rpx;
+  background: linear-gradient(135deg, #f3d4de 0%, #ebc0cf 100%);
+  color: #8c5367;
+  font-size: 24rpx;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.profile-tip {
+  margin-top: 18rpx;
+  padding: 0 8rpx;
+  font-size: 22rpx;
+  line-height: 1.6;
+  color: rgba(106, 79, 89, 0.76);
 }
 
 .nickname-input {

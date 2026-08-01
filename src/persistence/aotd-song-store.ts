@@ -13,6 +13,7 @@ export interface AotdSongTaskRecord {
   titleText: string;
   playlistTitle: string;
   tracksJson: string;
+  answersJson?: string;
   voiceBase64: string;
   voiceFormat: string;
   vocalProfile?: string;
@@ -37,6 +38,7 @@ interface AotdSongTaskRow extends RowDataPacket {
   title_text: string;
   playlist_title: string;
   tracks_json: string;
+  answers_json: string | null;
   voice_base64: string;
   voice_format: string;
   vocal_profile: string | null;
@@ -128,6 +130,7 @@ function toTaskRecord(row: AotdSongTaskRow): AotdSongTaskRecord {
     titleText: row.title_text,
     playlistTitle: row.playlist_title,
     tracksJson: row.tracks_json,
+    answersJson: row.answers_json || undefined,
     voiceBase64: row.voice_base64,
     voiceFormat: row.voice_format,
     vocalProfile: row.vocal_profile || undefined,
@@ -156,6 +159,7 @@ interface CreateTaskParams {
   titleText: string;
   playlistTitle: string;
   tracksJson: string;
+  answersJson?: string;
   voiceBase64: string;
   voiceFormat: string;
   vocalProfile?: string;
@@ -197,6 +201,7 @@ export class AotdSongStore {
                 title_text VARCHAR(255) NOT NULL,
                 playlist_title VARCHAR(255) NOT NULL,
                 tracks_json JSON NOT NULL,
+                answers_json JSON NULL,
                 voice_base64 LONGTEXT NOT NULL,
                 voice_format VARCHAR(32) NOT NULL DEFAULT 'mp3',
                 vocal_profile VARCHAR(32) NULL,
@@ -217,6 +222,12 @@ export class AotdSongStore {
                 INDEX idx_status_created_at (status, created_at)
               ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
             `),
+          );
+          await runMysqlWithRetry(() =>
+            this.pool!.query(`
+              ALTER TABLE aotd_song_task
+              ADD COLUMN answers_json JSON NULL AFTER tracks_json
+            `).catch(() => undefined),
           );
           await runMysqlWithRetry(() =>
             this.pool!.query(`
@@ -253,6 +264,7 @@ export class AotdSongStore {
         titleText: params.titleText,
         playlistTitle: params.playlistTitle,
         tracksJson: params.tracksJson,
+        answersJson: params.answersJson,
         voiceBase64: params.voiceBase64,
         voiceFormat: params.voiceFormat,
         vocalProfile: params.vocalProfile,
@@ -274,17 +286,18 @@ export class AotdSongStore {
         this.pool!.query<ResultSetHeader>(
           `
             INSERT INTO aotd_song_task (
-              user_id, title_text, playlist_title, tracks_json, voice_base64, voice_format, vocal_profile, voice_duration_ms,
+              user_id, title_text, playlist_title, tracks_json, answers_json, voice_base64, voice_format, vocal_profile, voice_duration_ms,
               voice_persona_id,
               status, provider_mode, song_title, song_summary, song_duration_seconds,
               song_audio_path, song_voice_sample_path, error_message, completed_at, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, NULL, NULL, NULL, NULL, NULL, NULL, NULL, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, NULL, NULL, NULL, NULL, NULL, NULL, NULL, ?, ?)
           `,
           [
             params.userId,
             params.titleText,
             params.playlistTitle,
             params.tracksJson,
+            params.answersJson || null,
             params.voiceBase64,
             params.voiceFormat,
             params.vocalProfile || null,

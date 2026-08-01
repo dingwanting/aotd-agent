@@ -15,10 +15,12 @@ import {
   getAotdSongProviderMode,
   type AotdSongVocalProfile,
 } from "./integrations/aotd-song-provider.js";
+import { generateAotdSongDemo } from "./integrations/aotd-song-demo.js";
 import {
   buildLocalVoiceSamplePath,
   extractRemoteSongErrorMessage,
   extractRemoteSongStatus,
+  resolveAotdSongStyleHit,
   resolveGeneratedSongFromRemotePayload,
 } from "./integrations/aotd-song-real-provider.js";
 import { finalizeSunoVoicePersona, prepareSunoVoicePersona } from "./integrations/suno-voice-provider.js";
@@ -43,10 +45,12 @@ const AOTD_REMINDER_PAGE = "pages/landing/index";
 
 // 部署版本指纹：每次代码改动必须 bump，方便从云托管日志确认跑的是哪个版本
 // 同时启动时打 dist 文件 hash + 文件 mtime + git HEAD，可以一眼看出"是否在跑新代码"
-const DEPLOY_VERSION = "aotd-2026-07-25-r26-aotd-song-stable-flow-v1";
+const DEPLOY_VERSION = "aotd-2026-07-29-r27-recommendation-warmup-marker-v1";
+const STARTUP_MARKER = "aotd-reco-warmup-v2-2026-07-29";
 
 const appEnv = loadEnv();
 const processingAotdSongTasks = new Set<number>();
+const sharedAotdAgent = new AotdAgent();
 
 function shortHash(input: string): string {
   let hash = 5381;
@@ -131,6 +135,7 @@ async function handleHealth(res: HttpResponse) {
     ok: true,
     service: "aotd-agent",
     deployVersion: DEPLOY_VERSION,
+    startupMarker: STARTUP_MARKER,
     retriever: retrieverFingerprint,
     port,
     workbookPath,
@@ -392,7 +397,40 @@ function parseAotdSongTracks(rawTracks: string): AotdSongPayloadTrack[] {
   }
 }
 
+function parseAotdSongAnswers(rawAnswers?: string): AotdQuestionnaireAnswers | undefined {
+  if (!rawAnswers) {
+    return undefined;
+  }
+  try {
+    const parsed = JSON.parse(rawAnswers);
+    return isAnswersPayload(parsed) ? parsed : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function hasUsedAotdSongChanceToday(eventLog: Array<Record<string, unknown>>): boolean {
+  const today = new Date().toISOString().slice(0, 10);
+  return eventLog.some((item) => {
+    const type = typeof item.type === "string" ? item.type : "";
+    const createdAt = typeof item.createdAt === "string" ? item.createdAt : "";
+    return type === "aotd_song_generation_requested" && createdAt.slice(0, 10) === today;
+  });
+}
+
 function formatAotdSongTask(record: AotdSongTaskRecord) {
+  const tracks = parseAotdSongTracks(record.tracksJson);
+  const answers = parseAotdSongAnswers(record.answersJson);
+  const styleHit = resolveAotdSongStyleHit({
+    titleText: record.titleText,
+    playlistTitle: record.playlistTitle,
+    tracks,
+    answers,
+    voiceBase64: record.voiceBase64 || "",
+    voiceFormat: record.voiceFormat || "mp3",
+    vocalProfile: normalizeAotdSongVocalProfile(record.vocalProfile),
+    voicePersonaId: record.voicePersonaId,
+  });
   return {
     id: record.id,
     status: record.status,
@@ -412,15 +450,20 @@ function formatAotdSongTask(record: AotdSongTaskRecord) {
             audioPath: record.songAudioPath,
             voiceSamplePath: record.songVoiceSamplePath,
             mode: record.providerMode,
+            styleLabel: styleHit.label,
+            styleName: styleHit.styleName,
+            styleSummary: styleHit.summary,
+            styleReason: styleHit.reason,
           }
         : null,
     meta: {
       mode: record.providerMode,
       providerReady: record.providerMode !== "demo",
+      styleHit,
       note:
         record.providerMode === "demo"
-          ? "当前为制作我的AOTD MVP，会先生成一段专属 demo 音轨；后续接入真实音乐模型后可直接替换。"
-          : "已接入真实音乐生成能力，并会综合 5 首参考歌的试听缓存与风格标签。",
+          ? `当前先生成一段专属 demo 音轨；本次命中的曲风是「${styleHit.label}」。`
+          : `已接入真实音乐生成能力；本次命中的主曲风是「${styleHit.label} · ${styleHit.styleName}」。`,
     },
   };
 }
@@ -453,10 +496,13 @@ async function processAotdSongTask(taskId: number): Promise<void> {
     if (!task) {
       return;
     }
+    const tracks = parseAotdSongTracks(task.tracksJson);
+    const answers = parseAotdSongAnswers(task.answersJson);
     const generated = await generateAotdSong({
       titleText: task.titleText,
       playlistTitle: task.playlistTitle,
-      tracks: parseAotdSongTracks(task.tracksJson),
+      tracks,
+      answers,
       voiceBase64: task.voiceBase64,
       voiceFormat: task.voiceFormat,
       vocalProfile: normalizeAotdSongVocalProfile(task.vocalProfile),
@@ -476,11 +522,57 @@ async function processAotdSongTask(taskId: number): Promise<void> {
       taskId,
       titleText: task.titleText,
       playlistTitle: task.playlistTitle,
-      trackCount: parseAotdSongTracks(task.tracksJson).length,
+      trackCount: tracks.length,
       mode: generated.provider,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unable to generate aotd song";
+    const fallbackTask = await aotdSongStore.findById(taskId);
+    if (
+      fallbackTask &&
+      fallbackTask.status !== "completed" &&
+      fallbackTask.providerMode === "remote" &&
+      isRetryableAotdSongRemoteError(error)
+    ) {
+      try {
+        const fallbackTracks = parseAotdSongTracks(fallbackTask.tracksJson);
+        const demoSong = await generateAotdSongDemo({
+          titleText: fallbackTask.titleText,
+          playlistTitle: fallbackTask.playlistTitle,
+          tracks: fallbackTracks.map((track) => ({
+            title: track.title,
+            artist: track.artist,
+          })),
+          answers: parseAotdSongAnswers(fallbackTask.answersJson),
+          voiceBase64: fallbackTask.voiceBase64,
+          voiceFormat: fallbackTask.voiceFormat,
+        });
+        await aotdSongStore.markCompleted(taskId, {
+          providerMode: "demo",
+          songTitle: demoSong.title,
+          songSummary: "真实音乐服务暂时不稳定，已先为你生成一段专属 demo 音轨。",
+          songDurationSeconds: demoSong.durationSeconds,
+          songAudioPath: demoSong.audioPath,
+          songVoiceSamplePath: demoSong.voiceSamplePath,
+        });
+        await userStateStore.appendEvent(fallbackTask.userId, {
+          type: "aotd_song_generated",
+          taskId,
+          titleText: fallbackTask.titleText,
+          playlistTitle: fallbackTask.playlistTitle,
+          trackCount: fallbackTracks.length,
+          mode: "demo",
+          fallbackReason: "remote-fetch-failed",
+        });
+        console.warn("[aotd-song] remote provider failed, fallback to demo", { taskId, error: message });
+        return;
+      } catch (fallbackError) {
+        console.error("[aotd-song] demo fallback failed", {
+          taskId,
+          error: fallbackError instanceof Error ? fallbackError.message : String(fallbackError),
+        });
+      }
+    }
     console.error("[aotd-song] task failed", { taskId, error: message });
     await aotdSongStore.markFailed(taskId, message);
   } finally {
@@ -529,6 +621,11 @@ function toAotdSongGenerateErrorMessage(error: unknown): string {
     return "数据库连接抖了一下，请稍后再试一次";
   }
   return message;
+}
+
+function isRetryableAotdSongRemoteError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error || "");
+  return /fetch failed|timeout|timed out|network|socket|econnreset|enotfound|eai_again|超时/i.test(message);
 }
 
 async function handleAotdSongVoicePersonaPrepare(req: HttpRequest, res: HttpResponse) {
@@ -647,12 +744,18 @@ async function handleAotdSongGenerate(req: HttpRequest, res: HttpResponse) {
   const voiceDurationMs = typeof payload.voiceDurationMs === "number" ? payload.voiceDurationMs : 0;
   const voicePersonaId = typeof payload.voicePersonaId === "string" ? payload.voicePersonaId.trim() : "";
   const tracks = Array.isArray(payload.tracks) ? payload.tracks.filter(isAotdSongTrack).slice(0, 5) : [];
+  const answers = isAnswersPayload(payload.answers) ? payload.answers : undefined;
 
   if (!titleText) {
     sendJson(res, 400, { error: "Missing titleText" });
     return;
   }
   try {
+    const userMemory = await userStateStore.getMemory(userId);
+    if (hasUsedAotdSongChanceToday(userMemory.eventLog)) {
+      sendJson(res, 429, { error: "你今天的机会已经用完了，明天再来吧～" });
+      return;
+    }
     if (!voiceBase64) {
       if (!voiceSourceUrl && !vocalProfile) {
         sendJson(res, 400, { error: "Missing voice sample" });
@@ -667,6 +770,7 @@ async function handleAotdSongGenerate(req: HttpRequest, res: HttpResponse) {
       titleText,
       playlistTitle,
       tracksJson: JSON.stringify(tracks),
+      answersJson: answers ? JSON.stringify(answers) : undefined,
       voiceBase64,
       voiceFormat,
       vocalProfile,
@@ -1085,50 +1189,98 @@ async function handleApi(req: HttpRequest, res: HttpResponse) {
     const requestExcludeSongKeys = getExcludeSongKeys(payload);
     let combinedExcludeSongIds = requestExcludeSongIds;
     let combinedExcludeSongKeys = requestExcludeSongKeys;
+    let persistenceReady = false;
 
     if (userId) {
-      await ensurePersistedUser(userId, { isAnonymous: !userId.startsWith("wx-") });
-      const reused = await userStateStore.findCachedResult(userId, payload);
-      if (reused) {
-        const memory = await userStateStore.saveRecommendation({
+      try {
+        await ensurePersistedUser(userId, { isAnonymous: !userId.startsWith("wx-") });
+        persistenceReady = true;
+      } catch (error) {
+        console.warn("[aotd] persistence degraded during ensurePersistedUser", {
           userId,
-          answers: payload,
-          result: reused,
-          questionDeckIds,
-          reusedFromHistory: true,
+          error: error instanceof Error ? error.message : String(error),
         });
-        await userStateStore.appendEvent(userId, {
-          type: "recommendation_reused",
-          answers: payload,
-        });
-        sendJson(res, 200, { ...reused, meta: { reusedFromHistory: true }, memory });
-        return;
       }
 
-      const memoryExclusions = await userStateStore.getRecentExclusions(userId);
-      combinedExcludeSongIds = [...new Set(memoryExclusions.excludeSongIds.concat(requestExcludeSongIds))];
-      combinedExcludeSongKeys = [...new Set(memoryExclusions.excludeSongKeys.concat(requestExcludeSongKeys))];
+      if (persistenceReady) {
+        try {
+          const reused = await userStateStore.findCachedResult(userId, payload);
+          if (reused) {
+            let memory: Awaited<ReturnType<typeof userStateStore.saveRecommendation>> | undefined;
+            try {
+              memory = await userStateStore.saveRecommendation({
+                userId,
+                answers: payload,
+                result: reused,
+                questionDeckIds,
+                reusedFromHistory: true,
+              });
+              await userStateStore.appendEvent(userId, {
+                type: "recommendation_reused",
+                answers: payload,
+              });
+            } catch (error) {
+              console.warn("[aotd] persistence degraded during recommendation_reused save", {
+                userId,
+                error: error instanceof Error ? error.message : String(error),
+              });
+            }
+            sendJson(res, 200, memory ? { ...reused, meta: { reusedFromHistory: true }, memory } : { ...reused, meta: { reusedFromHistory: true } });
+            return;
+          }
+        } catch (error) {
+          persistenceReady = false;
+          console.warn("[aotd] persistence degraded during cached result lookup", {
+            userId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+
+      if (persistenceReady) {
+        try {
+          const memoryExclusions = await userStateStore.getRecentExclusions(userId);
+          combinedExcludeSongIds = [...new Set(memoryExclusions.excludeSongIds.concat(requestExcludeSongIds))];
+          combinedExcludeSongKeys = [...new Set(memoryExclusions.excludeSongKeys.concat(requestExcludeSongKeys))];
+        } catch (error) {
+          persistenceReady = false;
+          console.warn("[aotd] persistence degraded during exclusion lookup", {
+            userId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+
       console.log(`[aotd] user=${userId} answers=${JSON.stringify(payload)}`);
     }
 
-    const agent = new AotdAgent();
-    const result = await agent.run(payload, {
+    const result = await sharedAotdAgent.run(payload, {
       excludeSongIds: combinedExcludeSongIds,
       excludeSongKeys: combinedExcludeSongKeys,
       rotationSeed: getRotationSeed(payload),
     });
     if (userId) {
-      const memory = await userStateStore.saveRecommendation({
-        userId,
-        answers: payload,
-        result,
-        questionDeckIds,
-      });
-      await userStateStore.appendEvent(userId, {
-        type: "recommendation_generated",
-        answers: payload,
-      });
-      sendJson(res, 200, { ...result, memory });
+      let memory: Awaited<ReturnType<typeof userStateStore.saveRecommendation>> | undefined;
+      if (persistenceReady) {
+        try {
+          memory = await userStateStore.saveRecommendation({
+            userId,
+            answers: payload,
+            result,
+            questionDeckIds,
+          });
+          await userStateStore.appendEvent(userId, {
+            type: "recommendation_generated",
+            answers: payload,
+          });
+        } catch (error) {
+          console.warn("[aotd] persistence degraded during recommendation_generated save", {
+            userId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+      sendJson(res, 200, memory ? { ...result, memory } : result);
       return;
     }
     sendJson(res, 200, result);
@@ -1274,6 +1426,76 @@ async function handleNeteaseAudioStream(req: HttpRequest, requestUrl: URL, res: 
   }
 }
 
+function isSafeAotdSongGeneratedPath(source: string): boolean {
+  if (!source) {
+    return false;
+  }
+  const normalized = path.posix.normalize(source);
+  return normalized.startsWith("/generated/aotd-song/") && !normalized.includes("..");
+}
+
+function resolveAotdSongGeneratedAbsolutePath(source: string): string {
+  const normalized = path.posix.normalize(source);
+  const relativePath = normalized.replace(/^\/+/, "");
+  return path.join(webRoot, relativePath);
+}
+
+async function handleAotdSongMedia(requestUrl: URL, res: HttpResponse) {
+  const source = String(requestUrl.searchParams.get("source") || "").trim();
+  if (!source) {
+    sendJson(res, 400, { ok: false, error: "Missing media source" });
+    return;
+  }
+
+  try {
+    if (/^https?:\/\//i.test(source)) {
+      const upstreamResponse = await fetch(source, {
+        method: "GET",
+        signal: AbortSignal.timeout(AUDIO_UPLOAD_FETCH_TIMEOUT_MS),
+      });
+      if (!upstreamResponse.ok || !upstreamResponse.body) {
+        sendJson(res, 502, {
+          ok: false,
+          error: `Upstream media request failed with status ${upstreamResponse.status}`,
+        });
+        return;
+      }
+      res.statusCode = upstreamResponse.status;
+      copyStreamingHeaders(upstreamResponse.headers, res);
+      Readable.fromWeb(upstreamResponse.body as never).pipe(res);
+      return;
+    }
+
+    if (!isSafeAotdSongGeneratedPath(source)) {
+      sendJson(res, 400, { ok: false, error: "Unsupported media source" });
+      return;
+    }
+
+    const absolutePath = resolveAotdSongGeneratedAbsolutePath(source);
+    const stat = await fs.stat(absolutePath);
+    if (!stat.isFile()) {
+      sendJson(res, 404, { ok: false, error: "Media file not found" });
+      return;
+    }
+    const ext = path.extname(absolutePath).toLowerCase();
+    res.writeHead(200, {
+      "content-type": contentTypes[ext] || "application/octet-stream",
+      "content-length": String(stat.size),
+      "cache-control": "private, max-age=600",
+      "accept-ranges": "bytes",
+    });
+    fsSync.createReadStream(absolutePath).pipe(res);
+  } catch (error) {
+    const errorCode = error && typeof error === "object" && "code" in error ? String((error as { code?: string }).code || "") : "";
+    if (errorCode === "ENOENT") {
+      sendJson(res, 404, { ok: false, error: "Media file not found" });
+      return;
+    }
+    const message = error instanceof Error ? error.message : "Unable to serve aotd song media";
+    sendJson(res, 500, { ok: false, error: message });
+  }
+}
+
 async function handleStatic(urlPath: string, res: HttpResponse) {
   const requestedPath = urlPath === "/" ? "/pages/question-drain.html" : urlPath;
   const safePath = path.normalize(requestedPath).replace(/^(\.\.[/\\])+/, "");
@@ -1289,6 +1511,17 @@ async function handleStatic(urlPath: string, res: HttpResponse) {
   } catch {
     res.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
     res.end("Not Found");
+  }
+}
+
+function warmupAotdRecommendation(): void {
+  try {
+    AotdAgent.preload();
+    console.log(`[aotd] recommendation warmup ready marker=${STARTUP_MARKER} deploy=${DEPLOY_VERSION}`);
+  } catch (error) {
+    console.error(`[aotd] recommendation warmup failed marker=${STARTUP_MARKER} deploy=${DEPLOY_VERSION}`, {
+      error: error instanceof Error ? error.message : String(error),
+    });
   }
 }
 
@@ -1362,6 +1595,11 @@ const server = createServer(async (req, res) => {
       return;
     }
 
+    if (requestUrl.pathname === "/api/aotd-song/media") {
+      await handleAotdSongMedia(requestUrl, res);
+      return;
+    }
+
     if (requestUrl.pathname === "/api/netease/play") {
       await handleNeteasePlay(requestUrl, res);
       return;
@@ -1392,7 +1630,9 @@ const server = createServer(async (req, res) => {
 });
 
 server.listen(port, () => {
+  warmupAotdRecommendation();
   console.log(`[BOOT] deployVersion=${DEPLOY_VERSION}`);
+  console.log(`[BOOT] startupMarker=${STARTUP_MARKER}`);
   console.log(`[BOOT] retriever=${JSON.stringify(retrieverFingerprint)}`);
   console.log(`[BOOT] auth.mode=${appEnv.wxAppId && appEnv.wxSecret ? "wx-code2session" : "anonymous-only"}`);
   console.log(`AOTD web server running at http://localhost:${port}`);

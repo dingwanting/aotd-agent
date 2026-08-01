@@ -91,7 +91,7 @@
                     : '15秒试听'
               }}
             </view>
-            <view class="copy-button {{copiedTrackIndex === index ? 'copy-button--active' : ''}} {{supportsInlineAudio ? '' : 'copy-button--single'}}" data-index="{{index}}" bindtap="handleCopyTrackKeyword">
+            <view class="copy-button {{copiedTrackIndex === index ? 'copy-button--active' : ''}}" data-index="{{index}}" bindtap="handleCopyTrackKeyword">
               {{copiedTrackIndex === index ? '已复制歌名' : '复制歌名'}}
             </view>
           </view>
@@ -125,14 +125,13 @@
     <block wx:else>
       <view class="make-card card">
         <text class="eyebrow">AOTD Song Lab</text>
-        <view class="make-title">制作我的 AOTD</view>
-        <view class="make-desc">参考这次 5 首歌的氛围，把你的主标题做成一首更像今晚心情的小歌。</view>
-        <view class="make-note">这次不用录音，直接选一个你想听到的人声方向就行。</view>
-      </view>
-
-      <view class="make-card card">
-        <text class="eyebrow">Title</text>
-        <view class="section-title">先定下这首小歌的标题</view>
+        <view class="make-title">先定这首小歌的标题</view>
+        <view class="make-desc">参考这次 5 首歌的氛围，先把标题定下来，再选一个你想听到的人声方向。</view>
+        <view wx:if="{{stylePreview && stylePreview.summary}}" class="style-preview-card">
+          <view class="style-preview-card__eyebrow">预估命中曲风</view>
+          <view class="style-preview-card__title">{{stylePreview.summary}}</view>
+          <view class="style-preview-card__desc">{{stylePreview.reason}}</view>
+        </view>
         <input
           class="title-input"
           value="{{titleText}}"
@@ -146,12 +145,12 @@
         </view>
       </view>
 
-      <view class="make-card card">
-        <text class="eyebrow">Voice</text>
-        <view class="section-title">选一个这次想要的人声</view>
-        <view class="generate-tip">不再录音了，直接选一个人声方向，让系统按这个气质去出歌。</view>
+      <view class="make-card make-card--compact card">
+        <text class="eyebrow">Voice & Generate</text>
+        <view class="section-title">选一个小歌的人声</view>
+        <view class="make-desc make-desc--compact">选好人声后，直接按这个方向把今晚的小歌做出来。</view>
         <view class="vocal-options">
-          <button
+          <view
             wx:for="{{vocalOptions}}"
             wx:key="value"
             class="vocal-option {{selectedVocalProfile === item.value ? 'vocal-option--active' : ''}}"
@@ -164,15 +163,9 @@
               <view wx:if="{{selectedVocalProfile === item.value}}" class="vocal-option__badge">已选</view>
             </view>
             <view class="vocal-option__desc">{{item.description}}</view>
-          </button>
+          </view>
         </view>
-      </view>
-
-      <view class="make-card card">
-        <text class="eyebrow">Generate</text>
-        <view class="section-title">把它做成一首小歌</view>
-        <view class="generate-tip">系统会先整理今晚这 5 首歌的气质，再结合你选的人声方向来生成一首完整的小歌。做完后你可以直接试听，也可以保存到本地。</view>
-        <button class="action-primary {{generatingSong ? 'action-primary--disabled' : ''}}" disabled="{{generatingSong || !selectedVocalProfile}}" bindtap="handleGenerateMyAotd">
+        <button class="action-primary generate-action {{generatingSong ? 'action-primary--disabled' : ''}}" disabled="{{generatingSong || !selectedVocalProfile}}" bindtap="handleGenerateMyAotd">
           {{generatingSong ? generationText : '开始制作我的 AOTD'}}
         </button>
         <view wx:if="{{showGenerationProgress}}" class="generation-progress">
@@ -203,11 +196,12 @@
       <view wx:if="{{songResult}}" class="make-card card">
         <text class="eyebrow">Result</text>
         <view class="section-title">{{songResult.title || '我的 AOTD 小歌'}}</view>
+        <view wx:if="{{songResult.styleSummary}}" class="result-style-chip">命中曲风：{{songResult.styleSummary}}</view>
+        <view wx:if="{{songResult.styleReason}}" class="result-style-reason">{{songResult.styleReason}}</view>
         <view class="result-desc">{{songResult.summary}}</view>
         <view class="result-meta">{{songMetaText}}</view>
         <view class="result-actions">
           <button class="action-primary" disabled="{{loadingSong}}" bindtap="handleToggleGeneratedSongPlay">{{loadingSong ? '加载中' : (playingSong ? '暂停播放' : '播放小歌')}}</button>
-          <button class="action-secondary" bindtap="handleSaveGeneratedSong">{{savedSongPath ? '已保存到本地' : '保存音频到本地'}}</button>
         </view>
         <view class="result-note muted">{{generationNote}}</view>
       </view>

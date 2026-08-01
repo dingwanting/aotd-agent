@@ -17,7 +17,7 @@ interface OpenAICompatibleResponse {
   };
 }
 
-const REQUEST_TIMEOUT_MS = 12000;
+const REQUEST_TIMEOUT_MS = 18000;
 const MAX_RETRY_ATTEMPTS = 3;
 const RETRYABLE_STATUS_CODES = new Set([408, 409, 429, 500, 502, 503, 504]);
 

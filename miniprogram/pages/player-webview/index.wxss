@@ -1,4 +1,3 @@
-.player-webview-page {
+.page-placeholder {
   min-height: 100vh;
-  background: #fff7fb;
 }

@@ -2,6 +2,8 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import type { AotdQuestionnaireAnswers } from "../domain/aotd/types.js";
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(__dirname, "../..");
 const generatedRoot = path.join(projectRoot, "web", "generated", "aotd-song");
@@ -17,6 +19,7 @@ export interface GenerateAotdSongDemoParams {
   titleText: string;
   playlistTitle: string;
   tracks: SongSeedTrack[];
+  answers?: AotdQuestionnaireAnswers;
   voiceBase64?: string;
   voiceFormat?: string;
 }

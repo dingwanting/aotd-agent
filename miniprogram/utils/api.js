@@ -9,6 +9,9 @@ const {
 const { STORAGE_KEYS, getStorage, setStorage } = require("./storage");
 
 const PLAYLIST_HISTORY_LIMIT = 6;
+const RECOMMENDATION_REQUEST_TIMEOUT_MS = 25000;
+const RECOMMENDATION_RETRY_LIMIT = 3;
+const RECOMMENDATION_RETRY_DELAY_MS = 700;
 
 function buildRotationSeed() {
   return `${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
@@ -109,7 +112,47 @@ function normalizeProfileInput(profileInput) {
   };
 }
 
-function requestRecommendation(answers) {
+function withTimeout(taskFactory, timeoutMs, timeoutMessage) {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      reject(new Error(timeoutMessage));
+    }, timeoutMs);
+
+    Promise.resolve()
+      .then(taskFactory)
+      .then((value) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        clearTimeout(timer);
+        resolve(value);
+      })
+      .catch((error) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        clearTimeout(timer);
+        reject(error);
+      });
+  });
+}
+
+function shouldRetryRecommendationError(error) {
+  const message = error && error.message ? String(error.message) : "";
+  if (!message) {
+    return false;
+  }
+  return /timeout|timed out|network|fetch failed|econnreset|enotfound|eai_again|无法连接|服务异常|服务繁忙|500|502|503|504/i.test(message);
+}
+
+function requestRecommendationOnce(answers) {
   const previousResult = getStorage(STORAGE_KEYS.result, null);
   const recentExclusions = collectRecentExclusions();
   const previousTracks =
@@ -188,25 +231,34 @@ function requestRecommendation(answers) {
           return;
         }
 
-        wx.cloud.callContainer({
-          config: {
-            env: CLOUD_ENV_ID
-          },
-          path: "/api/aotd/recommendation",
-          method: "POST",
-          header: Object.assign({ "X-WX-SERVICE": serviceName }, requestHeaders),
-          data,
-          success: handleSuccess,
-          fail: (error) => {
+        withTimeout(
+          () =>
+            new Promise((innerResolve, innerReject) => {
+              wx.cloud.callContainer({
+                config: {
+                  env: CLOUD_ENV_ID
+                },
+                path: "/api/aotd/recommendation",
+                method: "POST",
+                header: Object.assign({ "X-WX-SERVICE": serviceName }, requestHeaders),
+                data,
+                success: innerResolve,
+                fail: innerReject,
+              });
+            }),
+          RECOMMENDATION_REQUEST_TIMEOUT_MS,
+          "推荐服务响应超时，请稍后再试",
+        )
+          .then(handleSuccess)
+          .catch((error) => {
             if (index < serviceNames.length - 1) {
               tryCallContainer(index + 1);
               return;
             }
 
-            const detail = error && error.errMsg ? `：${error.errMsg}` : "";
+            const detail = error && error.errMsg ? `：${error.errMsg}` : error && error.message ? `：${error.message}` : "";
             reject(new Error(`当前无法连接推荐服务，请检查云托管环境 ID、服务名或小程序与云环境的关联状态${detail}`));
-          },
-        });
+          });
       };
 
       tryCallContainer(0);
@@ -216,12 +268,29 @@ function requestRecommendation(answers) {
     wx.request({
       url: `${API_BASE_URL}/api/aotd/recommendation`,
       method: "POST",
+      timeout: RECOMMENDATION_REQUEST_TIMEOUT_MS,
       header: requestHeaders,
       data,
       success: handleSuccess,
       fail: handleFail,
     });
   });
+}
+
+async function requestRecommendation(answers) {
+  let lastError = null;
+  for (let attempt = 1; attempt <= RECOMMENDATION_RETRY_LIMIT; attempt += 1) {
+    try {
+      return await requestRecommendationOnce(answers);
+    } catch (error) {
+      lastError = error;
+      if (!shouldRetryRecommendationError(error) || attempt >= RECOMMENDATION_RETRY_LIMIT) {
+        break;
+      }
+      await sleep(RECOMMENDATION_RETRY_DELAY_MS * attempt);
+    }
+  }
+  throw lastError || new Error("生成歌单失败");
 }
 
 function loadResultIfMatched(answers) {
@@ -596,6 +665,13 @@ function normalizeApiUrl(urlOrPath) {
   return `${API_BASE_URL}${String(urlOrPath).startsWith("/") ? "" : "/"}${urlOrPath}`;
 }
 
+function buildAotdSongMediaUrl(urlOrPath) {
+  if (!urlOrPath) {
+    return "";
+  }
+  return `${API_BASE_URL}/api/aotd-song/media?source=${encodeURIComponent(String(urlOrPath))}`;
+}
+
 function normalizeAotdSongTaskPayload(data) {
   const task = data && data.task ? data.task : {};
   const song = task && task.song ? task.song : {};
@@ -603,12 +679,26 @@ function normalizeAotdSongTaskPayload(data) {
     task: Object.assign({}, task, {
       song: song
         ? Object.assign({}, song, {
-            audioUrl: normalizeApiUrl(song.audioPath || song.audioUrl || ""),
-            voiceSampleUrl: normalizeApiUrl(song.voiceSamplePath || song.voiceSampleUrl || ""),
+            audioUrl: buildAotdSongMediaUrl(song.audioPath || song.audioUrl || ""),
+            voiceSampleUrl: buildAotdSongMediaUrl(song.voiceSamplePath || song.voiceSampleUrl || ""),
           })
         : null,
     }),
   });
+}
+
+function normalizeAotdSongErrorMessage(errorOrMessage, fallbackMessage) {
+  const rawMessage =
+    typeof errorOrMessage === "string"
+      ? errorOrMessage
+      : errorOrMessage && errorOrMessage.message
+        ? errorOrMessage.message
+        : fallbackMessage || "制作 AOTD 失败";
+  const message = String(rawMessage || fallbackMessage || "制作 AOTD 失败");
+  if (/fetch failed|network|timeout|timed out|econnreset|enotfound|eai_again/i.test(message)) {
+    return "真实音乐服务暂时不稳定，已切换重试链路，请稍后再试";
+  }
+  return message;
 }
 
 function callAotdSongApi(path, method, payload) {
@@ -623,7 +713,7 @@ function callAotdSongApi(path, method, payload) {
         resolve(normalizeAotdSongTaskPayload(response.data || {}));
         return;
       }
-      reject(new Error((response.data && response.data.error) || "制作 AOTD 失败"));
+      reject(new Error(normalizeAotdSongErrorMessage(response.data && response.data.error, "制作 AOTD 失败")));
     };
 
     if (!USE_LOCAL_API && USE_CLOUD_CONTAINER) {
@@ -646,7 +736,7 @@ function callAotdSongApi(path, method, payload) {
               tryCall(index + 1);
               return;
             }
-            reject(new Error((error && error.errMsg) || "制作 AOTD 失败"));
+            reject(new Error(normalizeAotdSongErrorMessage(error && error.errMsg, "制作 AOTD 失败")));
           },
         });
       };
@@ -660,7 +750,7 @@ function callAotdSongApi(path, method, payload) {
       header: headers,
       data: payload,
       success: handleSuccess,
-      fail: (error) => reject(new Error((error && error.errMsg) || "制作 AOTD 失败")),
+      fail: (error) => reject(new Error(normalizeAotdSongErrorMessage(error && error.errMsg, "制作 AOTD 失败"))),
     });
   });
 }
@@ -669,14 +759,63 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function requestAotdSongGeneration(payload) {
-  const created = await callAotdSongApi("/api/aotd-song/generate", "POST", payload);
-  const createdTask = created && created.task ? created.task : null;
-  if (!createdTask || !createdTask.id) {
-    throw new Error("没有创建成功制作任务");
+const AOTD_TASK_WAIT_TIMEOUT_MS = 8 * 60 * 1000;
+const AOTD_TASK_CONTINUE_MESSAGE = "这首小歌还在继续生成，先去忙一会儿，稍后回来会自动接着查结果";
+
+function shouldRetryCreateAotdSongTask(error) {
+  const message = error && error.message ? String(error.message) : "";
+  if (!message) {
+    return false;
   }
-  const timeoutAt = Date.now() + 120000;
-  let taskPayload = created;
+  if (/你今天的机会已经用完了|Missing|缺少|没有创建成功制作任务/.test(message)) {
+    return false;
+  }
+  return /真实音乐服务暂时不稳定|fetch failed|network|timeout|timed out|econnreset|enotfound|eai_again|无法连接到云托管服务/i.test(message);
+}
+
+async function requestAotdSongGeneration(payload) {
+  const created = await createAotdSongTask(payload);
+  return waitForAotdSongTask(created && created.task ? created.task.id : 0, {
+    initialPayload: created,
+    timeoutMs: AOTD_TASK_WAIT_TIMEOUT_MS,
+  });
+}
+
+async function createAotdSongTask(payload) {
+  let lastError = null;
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      const created = await callAotdSongApi("/api/aotd-song/generate", "POST", payload);
+      const createdTask = created && created.task ? created.task : null;
+      if (!createdTask || !createdTask.id) {
+        throw new Error("没有创建成功制作任务");
+      }
+      return created;
+    } catch (error) {
+      lastError = error;
+      if (!shouldRetryCreateAotdSongTask(error) || attempt >= 3) {
+        break;
+      }
+      await sleep(700 * attempt);
+    }
+  }
+  throw lastError || new Error("制作 AOTD 失败");
+}
+
+function getAotdSongTask(taskId) {
+  if (!taskId) {
+    return Promise.reject(new Error("缺少制作任务 ID"));
+  }
+  return callAotdSongApi(`/api/aotd-song/tasks/${taskId}`, "GET");
+}
+
+async function waitForAotdSongTask(taskId, options) {
+  if (!taskId) {
+    throw new Error("缺少制作任务 ID");
+  }
+  const timeoutMs = options && options.timeoutMs ? Number(options.timeoutMs) : AOTD_TASK_WAIT_TIMEOUT_MS;
+  const timeoutAt = Date.now() + timeoutMs;
+  let taskPayload = options && options.initialPayload ? options.initialPayload : await getAotdSongTask(taskId);
   while (Date.now() < timeoutAt) {
     if (taskPayload.task && taskPayload.task.status === "completed") {
       return {
@@ -686,12 +825,12 @@ async function requestAotdSongGeneration(payload) {
       };
     }
     if (taskPayload.task && taskPayload.task.status === "failed") {
-      throw new Error(taskPayload.task.errorMessage || "制作 AOTD 失败");
+      throw new Error(normalizeAotdSongErrorMessage(taskPayload.task.errorMessage, "制作 AOTD 失败"));
     }
-    await sleep(1500);
-    taskPayload = await callAotdSongApi(`/api/aotd-song/tasks/${createdTask.id}`, "GET");
+    await sleep(taskPayload.task && taskPayload.task.status === "processing" ? 2200 : 1500);
+    taskPayload = await getAotdSongTask(taskId);
   }
-  throw new Error("制作时间有点长，请稍后再回来看看");
+  throw new Error(AOTD_TASK_CONTINUE_MESSAGE);
 }
 
 module.exports = {
@@ -703,5 +842,8 @@ module.exports = {
   trackUserEvent,
   requestEveningReminderStatus,
   createEveningReminder,
+  createAotdSongTask,
+  getAotdSongTask,
+  waitForAotdSongTask,
   requestAotdSongGeneration,
 };

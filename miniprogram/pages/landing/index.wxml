@@ -8,17 +8,26 @@
     <view class="profile-sheet">
       <view class="profile-sheet__header">
         <view>
-          <view class="profile-sheet__title">先补一下面孔和名字</view>
-          <view class="profile-sheet__hint">完成后再进入今晚的陪伴流程</view>
+          <view class="profile-sheet__title">头像可选，直接开始也可以</view>
+          <view class="profile-sheet__hint">默认会用昵称“朋友”和默认头像；如果你主动填写，建议使用真实微信头像和昵称</view>
         </view>
         <view class="profile-sheet__close" bindtap="handleCloseProfileSheet">稍后</view>
       </view>
 
       <form bindsubmit="handleProfileSubmit">
-        <button class="avatar-picker" open-type="chooseAvatar" bindchooseavatar="handleChooseAvatar">
-          <image class="avatar-picker__image" src="{{avatarUrl}}" mode="aspectFill"></image>
-          <view class="avatar-picker__copy">点一下，选你的头像</view>
-        </button>
+        <view class="avatar-picker" bindtap="handlePickAvatar">
+          <view class="avatar-picker__card">
+            <image class="avatar-picker__image" src="{{avatarUrl}}" mode="aspectFill"></image>
+            <view class="avatar-picker__content">
+              <view class="avatar-picker__title">{{hasPickedAvatar ? '重新选择头像' : '点击选择头像'}}</view>
+              <view class="avatar-picker__copy">点击后会打开系统相册</view>
+              <view class="avatar-picker__status">{{hasPickedAvatar ? '已选好头像，也可以再换一张' : '不选也没关系；如果你想补资料，建议使用真实微信头像'}}</view>
+            </view>
+            <view class="avatar-picker__action">{{hasPickedAvatar ? '更换' : '去选择'}}</view>
+          </view>
+        </view>
+
+        <view class="profile-tip">如果你准备填写昵称，也建议直接使用微信昵称，后面展示会更自然。</view>
 
         <input
           class="nickname-input"
@@ -31,7 +40,7 @@
         />
 
         <button class="profile-submit {{canSubmitProfile ? 'profile-submit--active' : ''}}" form-type="submit">
-          开始陪伴
+          直接开始
         </button>
       </form>
     </view>
