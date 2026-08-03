@@ -10,12 +10,23 @@ function isDefaultAvatar(avatarUrl) {
   return !avatarUrl || avatarUrl === DEFAULT_AVATAR;
 }
 
+function hasAuthenticNickname(nickname) {
+  const normalized = String(nickname || "").trim();
+  return Boolean(normalized && normalized !== DEFAULT_NICKNAME);
+}
+
+function hasAuthenticAvatar(avatarUrl, avatarFileId) {
+  return Boolean(avatarFileId || !isDefaultAvatar(avatarUrl));
+}
+
 function hasProfileBasics(nickname, avatarUrl, avatarFileId) {
-  return canSubmitProfile(nickname, avatarUrl, avatarFileId);
+  return hasAuthenticNickname(nickname) && hasAuthenticAvatar(avatarUrl, avatarFileId);
 }
 
 function hasReusableProfileSession(nickname, avatarUrl, avatarFileId) {
-  return Boolean(getStorage(STORAGE_KEYS.userId, "") && hasProfileBasics(nickname, avatarUrl, avatarFileId));
+  const userId = getStorage(STORAGE_KEYS.userId, "");
+  const isAnonymous = getStorage(STORAGE_KEYS.isAnonymous, true);
+  return Boolean(userId && !isAnonymous && hasProfileBasics(nickname, avatarUrl, avatarFileId));
 }
 
 function canSubmitProfile(nickname, avatarUrl, avatarFileId) {
@@ -72,9 +83,26 @@ Page({
     hasPickedAvatar: false,
     showAuthenticProfileTip: false,
     canSubmitProfile: false,
+    supportsChooseAvatar: false,
   },
 
-  onShow() {
+  onLoad() {
+    this.setData({
+      supportsChooseAvatar: typeof wx.canIUse === "function" && wx.canIUse("button.open-type.chooseAvatar"),
+    });
+  },
+
+  async onShow() {
+    await this.syncLandingProfileState();
+  },
+
+  async syncLandingProfileState() {
+    const app = getApp ? getApp() : null;
+    const userId = getStorage(STORAGE_KEYS.userId, "");
+    const isAnonymous = getStorage(STORAGE_KEYS.isAnonymous, true);
+    if (userId && !isAnonymous && app && typeof app.refreshProfile === "function") {
+      await app.refreshProfile().catch(() => {});
+    }
     const avatarState = buildAvatarState();
     this.setData(Object.assign({}, avatarState, {
       showProfileSheet: hasReusableProfileSession(
@@ -113,25 +141,53 @@ Page({
 
   noop() {},
 
-  handleStart() {
-    const avatarState = buildAvatarState();
+  beginQuestionFlow(avatarState) {
+    const app = getApp ? getApp() : null;
+    if (app && typeof app.ensureUserSession === "function" && !getStorage(STORAGE_KEYS.userId, "")) {
+      app.ensureUserSession().catch(() => {});
+    }
+    clearAnswers();
+    clearQuestionDeck();
+    clearResult();
+    trackUserEvent({
+      type: "profile_reuse_before_question",
+      nickname: avatarState.nicknameDraft,
+      hasAvatar: Boolean(avatarState.avatarFileId || !isDefaultAvatar(avatarState.avatarUrl)),
+    }).catch(() => {});
+    wx.redirectTo({
+      url: "/pages/question/index?step=consumptionSource"
+    });
+  },
+
+  async handleStart() {
+    let avatarState = buildAvatarState();
     if (hasReusableProfileSession(avatarState.nicknameDraft, avatarState.avatarUrl, avatarState.avatarFileId)) {
-      const app = getApp ? getApp() : null;
-      if (app && typeof app.ensureUserSession === "function" && !getStorage(STORAGE_KEYS.userId, "")) {
-        app.ensureUserSession().catch(() => {});
-      }
-      clearAnswers();
-      clearQuestionDeck();
-      clearResult();
-      trackUserEvent({
-        type: "profile_reuse_before_question",
-        nickname: avatarState.nicknameDraft,
-        hasAvatar: Boolean(avatarState.avatarFileId || !isDefaultAvatar(avatarState.avatarUrl)),
-      }).catch(() => {});
-      wx.redirectTo({
-        url: "/pages/question/index?step=consumptionSource"
-      });
+      this.beginQuestionFlow(avatarState);
       return;
+    }
+
+    const app = getApp ? getApp() : null;
+    const userId = getStorage(STORAGE_KEYS.userId, "");
+    const isAnonymous = getStorage(STORAGE_KEYS.isAnonymous, true);
+    if (userId && !isAnonymous && app && typeof app.refreshProfile === "function") {
+      wx.showLoading({
+        title: "正在读取资料",
+        mask: true,
+      });
+      try {
+        await app.refreshProfile().catch(() => {});
+      } finally {
+        wx.hideLoading();
+      }
+      avatarState = buildAvatarState();
+      if (hasReusableProfileSession(avatarState.nicknameDraft, avatarState.avatarUrl, avatarState.avatarFileId)) {
+        this.setData({
+          showProfileSheet: false,
+          ...avatarState,
+        });
+        this.beginQuestionFlow(avatarState);
+        return;
+      }
     }
 
     this.setData({
@@ -158,7 +214,17 @@ Page({
 
   handleChooseAvatar(event) {
     const avatarUrl = event && event.detail ? event.detail.avatarUrl : "";
+    if (!avatarUrl || avatarUrl === DEFAULT_AVATAR) {
+      return;
+    }
     this.applyPickedAvatar(avatarUrl);
+  },
+
+  handleAvatarCardTap() {
+    if (this.data.supportsChooseAvatar) {
+      return;
+    }
+    this.handlePickAvatar();
   },
 
   chooseAvatarFromAlbum() {

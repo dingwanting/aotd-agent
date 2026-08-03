@@ -100,6 +100,7 @@
 }
 
 .avatar-picker__card {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 24rpx;
@@ -110,6 +111,23 @@
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.96) 0%, rgba(252, 240, 244, 0.98) 100%);
   border: 2rpx solid rgba(229, 139, 168, 0.26);
   box-shadow: 0 16rpx 34rpx rgba(220, 146, 174, 0.12);
+}
+
+.avatar-picker__native-trigger {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  padding: 0;
+  border: none;
+  border-radius: 30rpx;
+  background: transparent;
+  color: transparent;
+  font-size: 0;
+  line-height: 0;
+}
+
+.avatar-picker__native-trigger::after {
+  border: none;
 }
 
 .avatar-picker__image {
