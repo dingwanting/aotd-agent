@@ -87,6 +87,8 @@ const MAX_PROVIDER_POLLS = 110;
 const STATUS_FETCH_RETRY_LIMIT = 4;
 const STATUS_FETCH_RETRY_BASE_DELAY_MS = 1200;
 const MAX_TRANSIENT_STATUS_ERROR_STREAK = 8;
+const MAX_SUNO_STYLE_LENGTH = 920;
+const MAX_SUNO_STYLE_SEGMENT_LENGTH = 180;
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(__dirname, "..", "..");
 const generatedAudioRoot = path.join(projectRoot, "web", "generated", "aotd-song");
@@ -1030,6 +1032,46 @@ function buildReferenceTrackLine(request: GenerateAotdSongParams): string {
     .join("；");
 }
 
+function normalizeStyleSegment(value: string): string {
+  return String(value || "")
+    .replace(/[，；]/g, ", ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, MAX_SUNO_STYLE_SEGMENT_LENGTH)
+    .replace(/[\s,]+$/g, "");
+}
+
+function buildBoundedStyle(parts: string[]): string {
+  const selected: string[] = [];
+  const seen = new Set<string>();
+  for (const rawPart of parts) {
+    const part = normalizeStyleSegment(rawPart);
+    if (!part) {
+      continue;
+    }
+    const dedupeKey = part.toLowerCase();
+    if (seen.has(dedupeKey)) {
+      continue;
+    }
+    const current = selected.join(", ");
+    const nextValue = current ? `${current}, ${part}` : part;
+    if (nextValue.length <= MAX_SUNO_STYLE_LENGTH) {
+      selected.push(part);
+      seen.add(dedupeKey);
+      continue;
+    }
+    const remaining = MAX_SUNO_STYLE_LENGTH - (current ? current.length + 2 : 0);
+    if (remaining >= 24) {
+      const clipped = part.slice(0, remaining).replace(/[\s,]+$/g, "");
+      if (clipped) {
+        selected.push(clipped);
+      }
+    }
+    break;
+  }
+  return selected.join(", ");
+}
+
 function pickTopValues(values: string[], limit: number): string[] {
   const counts = new Map<string, number>();
   values.forEach((value) => {
@@ -1097,7 +1139,7 @@ function buildReferenceStyleSignature(request: GenerateAotdSongParams): string {
 function buildUploadStyle(request: GenerateAotdSongParams): string {
   const trackLine = buildReferenceTrackLine(request);
   const primary = resolvePrimaryStyleProfile(request);
-  return [
+  return buildBoundedStyle([
     `${primary.styleName}(${primary.label})`,
     primary.productionHint,
     buildArrangementStyleTokens(request),
@@ -1105,7 +1147,7 @@ function buildUploadStyle(request: GenerateAotdSongParams): string {
     buildAfterWorkStyleTokens(request),
     getVocalProfileConfig(request).styleTag,
     trackLine || request.playlistTitle || "playlist-inspired",
-  ].join(", ");
+  ]);
 }
 
 function isUsablePublicOrigin(origin: string): boolean {
@@ -1314,6 +1356,7 @@ function logSunoCreateRequest(
     audioWeight: payload.audioWeight,
     weirdnessConstraint: payload.weirdnessConstraint,
     negativeTags: buildRequestSnippet(payload.negativeTags, 500),
+    styleLength: style.length,
     stylePreview: buildRequestSnippet(style, 700),
     promptPreview: buildRequestSnippet(prompt, 1200),
     promptHash: crypto.createHash("sha1").update(prompt).digest("hex"),
