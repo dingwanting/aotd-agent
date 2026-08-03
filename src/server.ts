@@ -45,8 +45,9 @@ const AOTD_REMINDER_PAGE = "pages/landing/index";
 
 // 部署版本指纹：每次代码改动必须 bump，方便从云托管日志确认跑的是哪个版本
 // 同时启动时打 dist 文件 hash + 文件 mtime + git HEAD，可以一眼看出"是否在跑新代码"
-const DEPLOY_VERSION = "aotd-2026-07-29-r27-recommendation-warmup-marker-v1";
-const STARTUP_MARKER = "aotd-reco-warmup-v2-2026-07-29";
+const DEPLOY_VERSION = "aotd-2026-08-01-r28-song-daily-limit-whitelist-v1";
+const STARTUP_MARKER = "aotd-song-whitelist-v1-2026-08-01";
+const AOTD_SONG_DAILY_LIMIT_BYPASS_NICKNAMES = new Set(["didinding"]);
 
 const appEnv = loadEnv();
 const processingAotdSongTasks = new Set<number>();
@@ -418,6 +419,15 @@ function hasUsedAotdSongChanceToday(eventLog: Array<Record<string, unknown>>): b
   });
 }
 
+function normalizeDeveloperNickname(value: string | undefined): string {
+  return String(value || "").trim().toLowerCase();
+}
+
+function canBypassAotdSongDailyLimit(profile?: { nickname?: string } | null, user?: { nickname?: string } | null): boolean {
+  const nickname = normalizeDeveloperNickname(profile?.nickname || user?.nickname);
+  return Boolean(nickname && AOTD_SONG_DAILY_LIMIT_BYPASS_NICKNAMES.has(nickname));
+}
+
 function formatAotdSongTask(record: AotdSongTaskRecord) {
   const tracks = parseAotdSongTracks(record.tracksJson);
   const answers = parseAotdSongAnswers(record.answersJson);
@@ -751,8 +761,10 @@ async function handleAotdSongGenerate(req: HttpRequest, res: HttpResponse) {
     return;
   }
   try {
-    const userMemory = await userStateStore.getMemory(userId);
-    if (hasUsedAotdSongChanceToday(userMemory.eventLog)) {
+    const persistedUser = await userStateStore.findByUserId(userId);
+    const userMemory = persistedUser?.memory || await userStateStore.getMemory(userId);
+    const currentUser = userStore.get(userId);
+    if (!canBypassAotdSongDailyLimit(persistedUser?.profile, currentUser) && hasUsedAotdSongChanceToday(userMemory.eventLog)) {
       sendJson(res, 429, { error: "你今天的机会已经用完了，明天再来吧～" });
       return;
     }
