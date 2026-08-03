@@ -45,8 +45,8 @@ const AOTD_REMINDER_PAGE = "pages/landing/index";
 
 // 部署版本指纹：每次代码改动必须 bump，方便从云托管日志确认跑的是哪个版本
 // 同时启动时打 dist 文件 hash + 文件 mtime + git HEAD，可以一眼看出"是否在跑新代码"
-const DEPLOY_VERSION = "aotd-2026-08-03-r33-duration-model-fix-v1";
-const STARTUP_MARKER = "aotd-duration-model-fix-v1-2026-08-03";
+const DEPLOY_VERSION = "aotd-2026-08-03-r34-restore-remote-song-generation-v1";
+const STARTUP_MARKER = "aotd-restore-remote-song-generation-v1-2026-08-03";
 const AOTD_SONG_DAILY_LIMIT_BYPASS_NICKNAMES = new Set(["didinding"]);
 
 const appEnv = loadEnv();

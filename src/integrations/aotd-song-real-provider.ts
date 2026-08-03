@@ -89,7 +89,6 @@ const STATUS_FETCH_RETRY_BASE_DELAY_MS = 1200;
 const MAX_TRANSIENT_STATUS_ERROR_STREAK = 8;
 const MAX_SUNO_STYLE_LENGTH = 920;
 const MAX_SUNO_STYLE_SEGMENT_LENGTH = 180;
-const TARGET_AOTD_SONG_DURATION_SECONDS = 45;
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(__dirname, "..", "..");
 const generatedAudioRoot = path.join(projectRoot, "web", "generated", "aotd-song");
@@ -302,14 +301,6 @@ function getProviderPollIntervalMs(attempt: number): number {
     return 3500;
   }
   return 4500;
-}
-
-function resolveDurationCapableModel(model?: string): string {
-  const normalized = String(model || "").trim();
-  if (normalized === "V5_5") {
-    return normalized;
-  }
-  return TARGET_AOTD_SONG_DURATION_SECONDS > 0 ? "V5_5" : normalized || "V4_5ALL";
 }
 
 function sanitizeName(value: string): string {
@@ -1257,7 +1248,7 @@ function buildUploadCoverRequest(
   const personaId = (request.voicePersonaId || env.aotdSongVoicePersonaId).trim();
   const personaModel = request.voicePersonaId ? "voice_persona" : env.aotdSongVoicePersonaModel.trim();
   const needsVoicePersonaModel = personaModel === "voice_persona";
-  const model = needsVoicePersonaModel ? "V5_5" : resolveDurationCapableModel(env.aotdSongModel);
+  const model = needsVoicePersonaModel ? "V5_5" : env.aotdSongModel || "V4_5ALL";
   const weightConfig = buildStyleSpecificWeightConfig(request, previewCount);
   const payload: Record<string, unknown> = {
     uploadUrl: voiceUpload.publicUrl,
@@ -1272,7 +1263,6 @@ function buildUploadCoverRequest(
     styleWeight: Math.max(weightConfig.styleWeight, 0.84),
     weirdnessConstraint: Math.max(weightConfig.weirdnessConstraint, 0.18),
     audioWeight: Math.max(weightConfig.audioWeight, 0.84),
-    duration: TARGET_AOTD_SONG_DURATION_SECONDS,
   };
   if (vocalConfig.vocalGender) {
     payload.vocalGender = vocalConfig.vocalGender;
@@ -1293,11 +1283,10 @@ function buildTextGenerationRequest(
   const voicePersonaId = (request.voicePersonaId || env.aotdSongVoicePersonaId).trim();
   const weightConfig = buildStyleSpecificWeightConfig(request, previewCount);
   if (!voicePersonaId) {
-    const model = resolveDurationCapableModel(env.aotdSongModel);
     const basePayload: Record<string, unknown> = {
       customMode: true,
       instrumental: false,
-      model,
+      model: env.aotdSongModel || "V4_5ALL",
       callBackUrl: buildCallbackUrl(request, env),
       prompt: buildGenerationPrompt(request),
       style: buildUploadStyle(request),
@@ -1306,7 +1295,6 @@ function buildTextGenerationRequest(
       styleWeight: weightConfig.styleWeight,
       weirdnessConstraint: weightConfig.weirdnessConstraint,
       audioWeight: weightConfig.audioWeight,
-      duration: TARGET_AOTD_SONG_DURATION_SECONDS,
     };
     if (vocalConfig.vocalGender) {
       return Object.assign(basePayload, {
@@ -1329,7 +1317,6 @@ function buildTextGenerationRequest(
     styleWeight: Math.max(weightConfig.styleWeight, 0.84),
     weirdnessConstraint: Math.max(weightConfig.weirdnessConstraint, 0.18),
     audioWeight: Math.max(weightConfig.audioWeight, 0.84),
-    duration: TARGET_AOTD_SONG_DURATION_SECONDS,
   };
   if (vocalConfig.vocalGender) {
     voicePayload.vocalGender = vocalConfig.vocalGender;
