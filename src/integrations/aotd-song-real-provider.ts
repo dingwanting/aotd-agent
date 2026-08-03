@@ -304,6 +304,14 @@ function getProviderPollIntervalMs(attempt: number): number {
   return 4500;
 }
 
+function resolveDurationCapableModel(model?: string): string {
+  const normalized = String(model || "").trim();
+  if (normalized === "V5_5") {
+    return normalized;
+  }
+  return TARGET_AOTD_SONG_DURATION_SECONDS > 0 ? "V5_5" : normalized || "V4_5ALL";
+}
+
 function sanitizeName(value: string): string {
   return value.replace(/[^a-z0-9-_]/gi, "-").replace(/-+/g, "-").replace(/^-|-$/g, "").slice(0, 80);
 }
@@ -1249,7 +1257,7 @@ function buildUploadCoverRequest(
   const personaId = (request.voicePersonaId || env.aotdSongVoicePersonaId).trim();
   const personaModel = request.voicePersonaId ? "voice_persona" : env.aotdSongVoicePersonaModel.trim();
   const needsVoicePersonaModel = personaModel === "voice_persona";
-  const model = needsVoicePersonaModel ? "V5_5" : env.aotdSongModel || "V4_5ALL";
+  const model = needsVoicePersonaModel ? "V5_5" : resolveDurationCapableModel(env.aotdSongModel);
   const weightConfig = buildStyleSpecificWeightConfig(request, previewCount);
   const payload: Record<string, unknown> = {
     uploadUrl: voiceUpload.publicUrl,
@@ -1285,10 +1293,11 @@ function buildTextGenerationRequest(
   const voicePersonaId = (request.voicePersonaId || env.aotdSongVoicePersonaId).trim();
   const weightConfig = buildStyleSpecificWeightConfig(request, previewCount);
   if (!voicePersonaId) {
+    const model = resolveDurationCapableModel(env.aotdSongModel);
     const basePayload: Record<string, unknown> = {
       customMode: true,
       instrumental: false,
-      model: env.aotdSongModel || "V4_5ALL",
+      model,
       callBackUrl: buildCallbackUrl(request, env),
       prompt: buildGenerationPrompt(request),
       style: buildUploadStyle(request),
