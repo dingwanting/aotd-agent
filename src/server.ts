@@ -45,8 +45,8 @@ const AOTD_REMINDER_PAGE = "pages/landing/index";
 
 // 部署版本指纹：每次代码改动必须 bump，方便从云托管日志确认跑的是哪个版本
 // 同时启动时打 dist 文件 hash + 文件 mtime + git HEAD，可以一眼看出"是否在跑新代码"
-const DEPLOY_VERSION = "aotd-2026-08-03-r31-song-demo-45s-v1";
-const STARTUP_MARKER = "aotd-song-demo-45s-v1-2026-08-03";
+const DEPLOY_VERSION = "aotd-2026-08-03-r32-debug-real-song-errors-v1";
+const STARTUP_MARKER = "aotd-debug-real-song-errors-v1-2026-08-03";
 const AOTD_SONG_DAILY_LIMIT_BYPASS_NICKNAMES = new Set(["didinding"]);
 
 const appEnv = loadEnv();
@@ -428,6 +428,15 @@ function canBypassAotdSongDailyLimit(profile?: { nickname?: string } | null, use
   return Boolean(nickname && AOTD_SONG_DAILY_LIMIT_BYPASS_NICKNAMES.has(nickname));
 }
 
+async function canFallbackAotdSongRemoteFailureToDemo(userId: string): Promise<boolean> {
+  if (!userId) {
+    return true;
+  }
+  const persistedUser = await userStateStore.findByUserId(userId);
+  const currentUser = userStore.get(userId);
+  return !canBypassAotdSongDailyLimit(persistedUser?.profile, currentUser);
+}
+
 function formatAotdSongTask(record: AotdSongTaskRecord) {
   const tracks = parseAotdSongTracks(record.tracksJson);
   const answers = parseAotdSongAnswers(record.answersJson);
@@ -538,10 +547,14 @@ async function processAotdSongTask(taskId: number): Promise<void> {
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unable to generate aotd song";
     const fallbackTask = await aotdSongStore.findById(taskId);
+    const canFallbackToDemo = fallbackTask
+      ? await canFallbackAotdSongRemoteFailureToDemo(fallbackTask.userId)
+      : true;
     if (
       fallbackTask &&
       fallbackTask.status !== "completed" &&
-      fallbackTask.providerMode === "remote"
+      fallbackTask.providerMode === "remote" &&
+      canFallbackToDemo
     ) {
       try {
         const fallbackTracks = parseAotdSongTracks(fallbackTask.tracksJson);
@@ -581,6 +594,12 @@ async function processAotdSongTask(taskId: number): Promise<void> {
           error: fallbackError instanceof Error ? fallbackError.message : String(fallbackError),
         });
       }
+    }
+    if (fallbackTask && fallbackTask.providerMode === "remote" && !canFallbackToDemo) {
+      console.warn("[aotd-song] remote provider failed for debug whitelist user, skip demo fallback", {
+        taskId,
+        error: message,
+      });
     }
     console.error("[aotd-song] task failed", { taskId, error: message });
     await aotdSongStore.markFailed(taskId, message);
