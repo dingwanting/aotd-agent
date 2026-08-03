@@ -8,7 +8,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(__dirname, "../..");
 const generatedRoot = path.join(projectRoot, "web", "generated", "aotd-song");
 const SAMPLE_RATE = 22050;
-const DURATION_SECONDS = 24;
+const DURATION_SECONDS = 45;
 
 interface SongSeedTrack {
   title: string;
@@ -114,7 +114,8 @@ function renderDemoSong(seed: string): Float32Array {
   const melody = buildMelodyFrequencies(seed);
   const bass = [110, 123.47, 130.81, 146.83];
 
-  for (let bar = 0; bar < 8; bar += 1) {
+  const totalBars = Math.max(8, Math.floor(DURATION_SECONDS / 3));
+  for (let bar = 0; bar < totalBars; bar += 1) {
     const barStart = bar * 3;
     const bassFrequency = bass[hashString(`${seed}-bass-${bar}`) % bass.length];
     addTone(samples, barStart, 2.8, bassFrequency, 0.09, { harmonic: 0.18, tremolo: 0.5 });

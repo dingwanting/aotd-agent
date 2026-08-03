@@ -89,6 +89,7 @@ const STATUS_FETCH_RETRY_BASE_DELAY_MS = 1200;
 const MAX_TRANSIENT_STATUS_ERROR_STREAK = 8;
 const MAX_SUNO_STYLE_LENGTH = 920;
 const MAX_SUNO_STYLE_SEGMENT_LENGTH = 180;
+const TARGET_AOTD_SONG_DURATION_SECONDS = 45;
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(__dirname, "..", "..");
 const generatedAudioRoot = path.join(projectRoot, "web", "generated", "aotd-song");
@@ -1263,10 +1264,8 @@ function buildUploadCoverRequest(
     styleWeight: Math.max(weightConfig.styleWeight, 0.84),
     weirdnessConstraint: Math.max(weightConfig.weirdnessConstraint, 0.18),
     audioWeight: Math.max(weightConfig.audioWeight, 0.84),
+    duration: TARGET_AOTD_SONG_DURATION_SECONDS,
   };
-  if (model === "V5_5") {
-    payload.duration = 60;
-  }
   if (vocalConfig.vocalGender) {
     payload.vocalGender = vocalConfig.vocalGender;
   }
@@ -1298,6 +1297,7 @@ function buildTextGenerationRequest(
       styleWeight: weightConfig.styleWeight,
       weirdnessConstraint: weightConfig.weirdnessConstraint,
       audioWeight: weightConfig.audioWeight,
+      duration: TARGET_AOTD_SONG_DURATION_SECONDS,
     };
     if (vocalConfig.vocalGender) {
       return Object.assign(basePayload, {
@@ -1320,10 +1320,8 @@ function buildTextGenerationRequest(
     styleWeight: Math.max(weightConfig.styleWeight, 0.84),
     weirdnessConstraint: Math.max(weightConfig.weirdnessConstraint, 0.18),
     audioWeight: Math.max(weightConfig.audioWeight, 0.84),
+    duration: TARGET_AOTD_SONG_DURATION_SECONDS,
   };
-  if (voicePayload.model === "V5_5") {
-    voicePayload.duration = 60;
-  }
   if (vocalConfig.vocalGender) {
     voicePayload.vocalGender = vocalConfig.vocalGender;
   }
