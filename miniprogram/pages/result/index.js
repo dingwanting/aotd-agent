@@ -65,7 +65,7 @@ const GENERATION_PROGRESS_HOLD_TEXTS = [
   "正在细修人声和氛围层次...",
   "正在导出最终音频，再等一下就好...",
 ];
-const SONG_CREATION_RESUME_WINDOW_MS = 45 * 60 * 1000;
+const SONG_CREATION_RESUME_WINDOW_MS = 90 * 60 * 1000;
 const SONG_CREATION_CONTINUE_MESSAGE = "这首小歌还在继续生成，先去忙一会儿，稍后回来会自动接着查结果";
 
 function formatReminderDateText(remindAt) {
@@ -759,6 +759,44 @@ function fetchGeneratedSongTempFileViaCloudContainer(sourceUrl, song) {
     };
 
     tryRequest(0);
+  });
+}
+
+function downloadGeneratedSongTempFile(sourceUrl, song) {
+  if (!sourceUrl) {
+    return Promise.reject(new Error("当前没有拿到可播放的小歌音频。"));
+  }
+  const filePath = buildGeneratedSongTempFilePath(song, sourceUrl);
+  return new Promise((resolve, reject) => {
+    wx.downloadFile({
+      url: sourceUrl,
+      success: (response) => {
+        const tempFilePath = response && (response.tempFilePath || response.filePath);
+        if (!response || response.statusCode < 200 || response.statusCode >= 300 || !tempFilePath) {
+          reject(buildAudioError({
+            stage: "generated_download",
+            statusCode: response && response.statusCode,
+            message: "当前没有拿到可播放的小歌音频。",
+            responseData: response && response.data ? response.data : null,
+          }));
+          return;
+        }
+        copyFileWithOverwrite(tempFilePath, filePath)
+          .then(resolve)
+          .catch((error) => reject(buildAudioError({
+            stage: "generated_copy",
+            code: error && error.errCode ? error.errCode : "",
+            message: error && error.errMsg ? error.errMsg : "歌曲文件写入失败。",
+            rawError: error,
+          })));
+      },
+      fail: (error) => reject(buildAudioError({
+        stage: "generated_download",
+        code: error && error.errCode ? error.errCode : "",
+        message: error && error.errMsg ? error.errMsg : "当前无法连接歌曲播放服务。",
+        rawError: error,
+      })),
+    });
   });
 }
 
@@ -1552,8 +1590,22 @@ Page({
       console.warn("[aotd-song] resolve generated song playable url failed", {
         message: error && error.message ? error.message : String(error || "")
       });
-      return sourceUrl;
     }
+    try {
+      const tempFilePath = await downloadGeneratedSongTempFile(sourceUrl, song);
+      this.generatedSongTempFilePath = tempFilePath;
+      this.generatedSongSourceUrl = sourceUrl;
+      this.persistSongCreationState({
+        generatedSongTempFilePath: tempFilePath,
+        generatedSongSourceUrl: sourceUrl,
+      });
+      return tempFilePath;
+    } catch (error) {
+      console.warn("[aotd-song] direct generated song download failed", {
+        message: error && error.message ? error.message : String(error || "")
+      });
+    }
+    return sourceUrl;
   },
 
   playSongAudio(url) {

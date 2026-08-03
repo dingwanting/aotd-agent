@@ -758,8 +758,9 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-const AOTD_TASK_WAIT_TIMEOUT_MS = 8 * 60 * 1000;
+const AOTD_TASK_WAIT_TIMEOUT_MS = 18 * 60 * 1000;
 const AOTD_TASK_CONTINUE_MESSAGE = "这首小歌还在继续生成，先去忙一会儿，稍后回来会自动接着查结果";
+const AOTD_TASK_POLL_RETRY_LIMIT = 10;
 
 function shouldRetryCreateAotdSongTask(error) {
   const message = error && error.message ? String(error.message) : "";
@@ -770,6 +771,17 @@ function shouldRetryCreateAotdSongTask(error) {
     return false;
   }
   return /真实音乐服务暂时不稳定|fetch failed|network|timeout|timed out|econnreset|enotfound|eai_again|无法连接到云托管服务/i.test(message);
+}
+
+function shouldRetryPollAotdSongTask(error) {
+  const message = error && error.message ? String(error.message) : "";
+  if (!message) {
+    return false;
+  }
+  if (/Task not found|缺少制作任务 ID|Method not allowed|Missing user session/i.test(message)) {
+    return false;
+  }
+  return /真实音乐服务暂时不稳定|fetch failed|network|timeout|timed out|econnreset|enotfound|eai_again|无法连接到云托管服务|当前无法连接/i.test(message);
 }
 
 async function requestAotdSongGeneration(payload) {
@@ -815,6 +827,7 @@ async function waitForAotdSongTask(taskId, options) {
   const timeoutMs = options && options.timeoutMs ? Number(options.timeoutMs) : AOTD_TASK_WAIT_TIMEOUT_MS;
   const timeoutAt = Date.now() + timeoutMs;
   let taskPayload = options && options.initialPayload ? options.initialPayload : await getAotdSongTask(taskId);
+  let pollErrorStreak = 0;
   while (Date.now() < timeoutAt) {
     if (taskPayload.task && taskPayload.task.status === "completed") {
       return {
@@ -827,7 +840,16 @@ async function waitForAotdSongTask(taskId, options) {
       throw new Error(normalizeAotdSongErrorMessage(taskPayload.task.errorMessage, "制作 AOTD 失败"));
     }
     await sleep(taskPayload.task && taskPayload.task.status === "processing" ? 2200 : 1500);
-    taskPayload = await getAotdSongTask(taskId);
+    try {
+      taskPayload = await getAotdSongTask(taskId);
+      pollErrorStreak = 0;
+    } catch (error) {
+      if (shouldRetryPollAotdSongTask(error) && pollErrorStreak < AOTD_TASK_POLL_RETRY_LIMIT) {
+        pollErrorStreak += 1;
+        continue;
+      }
+      throw error;
+    }
   }
   throw new Error(AOTD_TASK_CONTINUE_MESSAGE);
 }

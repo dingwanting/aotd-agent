@@ -45,8 +45,8 @@ const AOTD_REMINDER_PAGE = "pages/landing/index";
 
 // 部署版本指纹：每次代码改动必须 bump，方便从云托管日志确认跑的是哪个版本
 // 同时启动时打 dist 文件 hash + 文件 mtime + git HEAD，可以一眼看出"是否在跑新代码"
-const DEPLOY_VERSION = "aotd-2026-08-01-r29-song-style-length-guard-v1";
-const STARTUP_MARKER = "aotd-song-style-guard-v1-2026-08-01";
+const DEPLOY_VERSION = "aotd-2026-08-01-r30-song-stability-guard-v1";
+const STARTUP_MARKER = "aotd-song-stability-guard-v1-2026-08-01";
 const AOTD_SONG_DAILY_LIMIT_BYPASS_NICKNAMES = new Set(["didinding"]);
 
 const appEnv = loadEnv();
@@ -541,8 +541,7 @@ async function processAotdSongTask(taskId: number): Promise<void> {
     if (
       fallbackTask &&
       fallbackTask.status !== "completed" &&
-      fallbackTask.providerMode === "remote" &&
-      isRetryableAotdSongRemoteError(error)
+      fallbackTask.providerMode === "remote"
     ) {
       try {
         const fallbackTracks = parseAotdSongTracks(fallbackTask.tracksJson);
@@ -572,7 +571,7 @@ async function processAotdSongTask(taskId: number): Promise<void> {
           playlistTitle: fallbackTask.playlistTitle,
           trackCount: fallbackTracks.length,
           mode: "demo",
-          fallbackReason: "remote-fetch-failed",
+          fallbackReason: isRetryableAotdSongRemoteError(error) ? "remote-fetch-failed" : "remote-provider-failed",
         });
         console.warn("[aotd-song] remote provider failed, fallback to demo", { taskId, error: message });
         return;
