@@ -6,7 +6,7 @@ const {
   USE_CLOUD_CONTAINER,
   USE_LOCAL_API,
 } = require("./config");
-const { STORAGE_KEYS, getStorage, setStorage } = require("./storage");
+const { STORAGE_KEYS, getStorage, setStorage, clearSessionIdentity } = require("./storage");
 
 const PLAYLIST_HISTORY_LIMIT = 6;
 const RECOMMENDATION_REQUEST_TIMEOUT_MS = 25000;
@@ -694,63 +694,130 @@ function normalizeAotdSongErrorMessage(errorOrMessage, fallbackMessage) {
         ? errorOrMessage.message
         : fallbackMessage || "制作 AOTD 失败";
   const message = String(rawMessage || fallbackMessage || "制作 AOTD 失败");
+  if (/Missing user session/i.test(message)) {
+    return "登录状态失效了，正在重新连接，请再试一次";
+  }
   if (/fetch failed|network|timeout|timed out|econnreset|enotfound|eai_again/i.test(message)) {
     return "真实音乐服务暂时不稳定，已切换重试链路，请稍后再试";
   }
   return message;
 }
 
-function callAotdSongApi(path, method, payload) {
-  const userId = getStorage(STORAGE_KEYS.userId, "");
-  const headers = { "content-type": "application/json" };
-  if (userId) {
-    headers["X-AOTD-User-Id"] = userId;
+function getAppInstance() {
+  try {
+    return typeof getApp === "function" ? getApp() : null;
+  } catch {
+    return null;
   }
-  return new Promise((resolve, reject) => {
-    const handleSuccess = (response) => {
-      if (response.statusCode >= 200 && response.statusCode < 300 && response.data && response.data.ok) {
-        resolve(normalizeAotdSongTaskPayload(response.data || {}));
-        return;
-      }
-      reject(new Error(normalizeAotdSongErrorMessage(response.data && response.data.error, "制作 AOTD 失败")));
-    };
+}
 
-    if (!USE_LOCAL_API && USE_CLOUD_CONTAINER) {
-      const serviceNames = Array.from(new Set([CLOUD_SERVICE_NAME].concat(CLOUD_SERVICE_FALLBACKS || []).filter(Boolean)));
-      const tryCall = (index) => {
-        const serviceName = serviceNames[index];
-        if (!serviceName) {
-          reject(new Error("无法连接到云托管服务"));
+async function ensureAotdSongUserIdReady(forceRefresh) {
+  if (forceRefresh) {
+    clearSessionIdentity();
+  }
+  let userId = getStorage(STORAGE_KEYS.userId, "");
+  if (userId) {
+    return userId;
+  }
+  const app = getAppInstance();
+  if (app && app.userBootstrapPromise && typeof app.userBootstrapPromise.then === "function") {
+    try {
+      await app.userBootstrapPromise;
+    } catch {
+      // ignore bootstrap failure and keep trying below
+    }
+  }
+  userId = getStorage(STORAGE_KEYS.userId, "");
+  if (userId) {
+    return userId;
+  }
+  if (app && typeof app.bootstrapUser === "function") {
+    try {
+      userId = await app.bootstrapUser();
+    } catch {
+      userId = "";
+    }
+  }
+  userId = getStorage(STORAGE_KEYS.userId, "") || userId || "";
+  if (userId) {
+    return userId;
+  }
+  if (app && typeof app.refreshProfile === "function") {
+    try {
+      userId = await app.refreshProfile();
+    } catch {
+      userId = "";
+    }
+  }
+  return getStorage(STORAGE_KEYS.userId, "") || userId || "";
+}
+
+function requestAotdSongApiOnce(path, method, payload) {
+  return ensureAotdSongUserIdReady(false).then((userId) => {
+    const headers = { "content-type": "application/json" };
+    if (userId) {
+      headers["X-AOTD-User-Id"] = userId;
+    }
+    return new Promise((resolve, reject) => {
+      const handleSuccess = (response) => {
+        if (response.statusCode >= 200 && response.statusCode < 300 && response.data && response.data.ok) {
+          resolve(normalizeAotdSongTaskPayload(response.data || {}));
           return;
         }
-        wx.cloud.callContainer({
-          config: { env: CLOUD_ENV_ID },
-          path,
-          method,
-          header: Object.assign({ "X-WX-SERVICE": serviceName }, headers),
-          data: payload,
-          success: handleSuccess,
-          fail: (error) => {
-            if (index < serviceNames.length - 1) {
-              tryCall(index + 1);
-              return;
-            }
-            reject(new Error(normalizeAotdSongErrorMessage(error && error.errMsg, "制作 AOTD 失败")));
-          },
-        });
+        reject(new Error(normalizeAotdSongErrorMessage(response.data && response.data.error, "制作 AOTD 失败")));
       };
-      tryCall(0);
-      return;
-    }
 
-    wx.request({
-      url: `${API_BASE_URL}${path}`,
-      method,
-      header: headers,
-      data: payload,
-      success: handleSuccess,
-      fail: (error) => reject(new Error(normalizeAotdSongErrorMessage(error && error.errMsg, "制作 AOTD 失败"))),
+      if (!USE_LOCAL_API && USE_CLOUD_CONTAINER) {
+        const serviceNames = Array.from(new Set([CLOUD_SERVICE_NAME].concat(CLOUD_SERVICE_FALLBACKS || []).filter(Boolean)));
+        const tryCall = (index) => {
+          const serviceName = serviceNames[index];
+          if (!serviceName) {
+            reject(new Error("无法连接到云托管服务"));
+            return;
+          }
+          wx.cloud.callContainer({
+            config: { env: CLOUD_ENV_ID },
+            path,
+            method,
+            header: Object.assign({ "X-WX-SERVICE": serviceName }, headers),
+            data: payload,
+            success: handleSuccess,
+            fail: (error) => {
+              if (index < serviceNames.length - 1) {
+                tryCall(index + 1);
+                return;
+              }
+              reject(new Error(normalizeAotdSongErrorMessage(error && error.errMsg, "制作 AOTD 失败")));
+            },
+          });
+        };
+        tryCall(0);
+        return;
+      }
+
+      wx.request({
+        url: `${API_BASE_URL}${path}`,
+        method,
+        header: headers,
+        data: payload,
+        success: handleSuccess,
+        fail: (error) => reject(new Error(normalizeAotdSongErrorMessage(error && error.errMsg, "制作 AOTD 失败"))),
+      });
     });
+  });
+}
+
+function callAotdSongApi(path, method, payload) {
+  return requestAotdSongApiOnce(path, method, payload).catch(async (error) => {
+    const message = error && error.message ? String(error.message) : "";
+    if (!/登录状态失效了|Missing user session/i.test(message)) {
+      throw error;
+    }
+    const recoveredUserId = await ensureAotdSongUserIdReady(true);
+    if (!recoveredUserId) {
+      throw new Error("登录状态失效了，请重新进入小程序后再试一次");
+    }
+    return requestAotdSongApiOnce(path, method, payload);
   });
 }
 
